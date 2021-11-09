@@ -5,46 +5,51 @@ using System.Runtime.InteropServices;
 
 namespace Suballocation
 {
-    public unsafe sealed class StackSuballocator<T> : ISuballocator<T>, IDisposable where T : unmanaged
+    public unsafe sealed class SequentialFitSuballocator<T> : ISuballocator<T>, IDisposable where T : unmanaged
     {
         private readonly T* _pElems;
         private readonly MemoryHandle _memoryHandle;
         private readonly bool _privatelyOwned;
-        private readonly NativeStack<IndexEntry> _indexes = new();
+        private readonly NativeBitArray _allocatedIndexes;
+        private NativeQueue<IndexEntry> _indexQueue = new();
+        private NativeQueue<IndexEntry> _futureQueue = new();
         private bool _disposed;
 
-        public StackSuballocator(long length)
+        public SequentialFitSuballocator(long length)
         {
             if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot allocate a backing buffer of size <= 0.");
 
             LengthTotal = length;
+            _allocatedIndexes = new NativeBitArray(length);
 
             _pElems = (T*)NativeMemory.Alloc((nuint)length, (nuint)Unsafe.SizeOf<T>());
             _privatelyOwned = true;
 
-            _indexes.Push(new IndexEntry() { Index = 0, Length = length });
+            _indexQueue.Enqueue(new IndexEntry() { Index = 0, Length = length });
         }
 
-        public StackSuballocator(T* pData, long length)
+        public SequentialFitSuballocator(T* pData, long length)
         {
             if (pData == null) throw new ArgumentNullException(nameof(pData));
             if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot allocate a backing buffer of size <= 0.");
 
             LengthTotal = length;
+            _allocatedIndexes = new NativeBitArray(length);
 
             _pElems = pData;
 
-            _indexes.Push(new IndexEntry() { Index = 0, Length = length });
+            _indexQueue.Enqueue(new IndexEntry() { Index = 0, Length = length });
         }
 
-        public StackSuballocator(Memory<T> data)
+        public SequentialFitSuballocator(Memory<T> data)
         {
             LengthTotal = data.Length;
+            _allocatedIndexes = new NativeBitArray(data.Length);
 
             _memoryHandle = data.Pin();
             _pElems = (T*)_memoryHandle.Pointer;
 
-            _indexes.Push(new IndexEntry() { Index = 0, Length = data.Length });
+            _indexQueue.Enqueue(new IndexEntry() { Index = 0, Length = data.Length });
         }
 
         public long SizeUsed => LengthUsed * Unsafe.SizeOf<T>();
@@ -100,35 +105,62 @@ namespace Suballocation
                 throw new OutOfMemoryException();
             }
 
-            var indexEntry = new IndexEntry() { Index = LengthUsed, Length = length };
+            int swaps = 0;
 
-            _indexes.Push(indexEntry);
+            for (; ; )
+            {
+                if (_indexQueue.Length == 0)
+                {
+                    var temp = _indexQueue;
+                    _indexQueue = _futureQueue;
+                    _futureQueue = _indexQueue;
+                    swaps++;
 
-            Allocations++;
-            LengthUsed += length;
+                    if(swaps == 2)
+                    {
+                        throw new OutOfMemoryException();
+                    }
+                }
 
-            return new(indexEntry.Index, indexEntry.Length);
+                Debug.Assert(_indexQueue.Length > 0);
+
+                var indexEntry = _indexQueue.Dequeue();
+
+                while(_indexQueue.TryPeek(out var nextIndexEntry) && nextIndexEntry.Index == indexEntry.Index + indexEntry.Length)
+                {
+                    _indexQueue.Dequeue();
+
+                    indexEntry = indexEntry with { Length = indexEntry.Length + nextIndexEntry.Length };
+                }
+
+                if(indexEntry.Length >= length)
+                {
+                    if (indexEntry.Length > length)
+                    {
+                        var leftoverEntry = new IndexEntry() { Index = indexEntry.Index + length, Length = indexEntry.Length - length };
+
+                        _indexQueue.EnqueueHead(leftoverEntry);
+                    }
+
+                    _futureQueue.EnqueueHead(indexEntry);
+                    _allocatedIndexes[indexEntry.Index] = true;
+
+                    Allocations++;
+                    LengthUsed += length;
+
+                    return new(indexEntry.Index, indexEntry.Length);
+                }
+            }
         }
 
         private unsafe void Free(long index, long length)
         {
-            if (_indexes.TryPop(out var topEntry) == false)
+            if (_allocatedIndexes[index] == false)
             {
-                throw new ArgumentException($"No rented segments found.");
+                throw new ArgumentException($"No rented segment found at index {index}.");
             }
 
-            if (topEntry.Index != index)
-            {
-                throw new ArgumentException($"Returned segment does not have the expected index ({topEntry.Index}).");
-            }
-
-            if (topEntry.Length != length)
-            {
-                throw new ArgumentException($"Returned segment does not have expected length ({topEntry.Length:N0}).");
-            }
-
-            bool success = _indexes.TryPop(out _);
-            Debug.Assert(success, "Unable to pop from index stack.");
+            _allocatedIndexes[index] = false;
 
             Allocations--;
             LengthUsed -= length;
@@ -138,8 +170,10 @@ namespace Suballocation
         {
             Allocations = 0;
             LengthUsed = 0;
-            _indexes.Clear();
-            _indexes.Push(new IndexEntry() { Index = 0, Length = LengthTotal });
+            _indexQueue.Clear();
+            _futureQueue.Clear();
+            _allocatedIndexes.Clear();
+            _indexQueue.Enqueue(new IndexEntry() { Index = 0, Length = LengthTotal });
         }
 
         private void Dispose(bool disposing)
@@ -148,10 +182,12 @@ namespace Suballocation
             {
                 if (disposing)
                 {
-                    _indexes.Dispose();
+                    _indexQueue.Dispose();
+                    _futureQueue.Dispose();
+                    _allocatedIndexes.Dispose();
                 }
 
-                _memoryHandle.Dispose(); 
+                _memoryHandle.Dispose();
 
                 if (_privatelyOwned)
                 {
@@ -162,7 +198,7 @@ namespace Suballocation
             }
         }
 
-        ~StackSuballocator()
+        ~SequentialFitSuballocator()
         {
             Dispose(disposing: false);
         }

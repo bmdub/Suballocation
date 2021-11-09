@@ -5,46 +5,43 @@ using System.Runtime.InteropServices;
 
 namespace Suballocation
 {
-    public unsafe sealed class StackSuballocator<T> : ISuballocator<T>, IDisposable where T : unmanaged
+    public unsafe sealed class FixedStackSuballocator<T> : ISuballocator<T>, IDisposable where T : unmanaged
     {
         private readonly T* _pElems;
         private readonly MemoryHandle _memoryHandle;
         private readonly bool _privatelyOwned;
-        private readonly NativeStack<IndexEntry> _indexes = new();
+        private readonly long _segmentLength;
         private bool _disposed;
 
-        public StackSuballocator(long length)
+        public FixedStackSuballocator(long length, long segmentLength)
         {
             if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot allocate a backing buffer of size <= 0.");
 
             LengthTotal = length;
+            _segmentLength = segmentLength;
 
             _pElems = (T*)NativeMemory.Alloc((nuint)length, (nuint)Unsafe.SizeOf<T>());
             _privatelyOwned = true;
-
-            _indexes.Push(new IndexEntry() { Index = 0, Length = length });
         }
 
-        public StackSuballocator(T* pData, long length)
+        public FixedStackSuballocator(T* pData, long length, long segmentLength)
         {
             if (pData == null) throw new ArgumentNullException(nameof(pData));
             if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot allocate a backing buffer of size <= 0.");
 
             LengthTotal = length;
+            _segmentLength = segmentLength;
 
             _pElems = pData;
-
-            _indexes.Push(new IndexEntry() { Index = 0, Length = length });
         }
 
-        public StackSuballocator(Memory<T> data)
+        public FixedStackSuballocator(Memory<T> data, long segmentLength)
         {
             LengthTotal = data.Length;
+            _segmentLength = segmentLength;
 
             _memoryHandle = data.Pin();
             _pElems = (T*)_memoryHandle.Pointer;
-
-            _indexes.Push(new IndexEntry() { Index = 0, Length = data.Length });
         }
 
         public long SizeUsed => LengthUsed * Unsafe.SizeOf<T>();
@@ -62,9 +59,9 @@ namespace Suballocation
         public UnmanagedMemorySegmentResource<T> RentResource(long length = 1)
         {
             if (_disposed) throw new ObjectDisposedException(nameof(SweepingSuballocator<T>));
-            if (length == 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot rent a segment of size 0.");
+            if (length != _segmentLength) throw new ArgumentOutOfRangeException(nameof(length), $"Segment length must be user-defined length ({_segmentLength}).");
 
-            var rawSegment = Alloc(length);
+            var rawSegment = Alloc(_segmentLength);
 
             return new UnmanagedMemorySegmentResource<T>(this, _pElems + rawSegment.Index, rawSegment.Length);
         }
@@ -79,9 +76,9 @@ namespace Suballocation
         public UnmanagedMemorySegment<T> Rent(long length = 1)
         {
             if (_disposed) throw new ObjectDisposedException(nameof(SweepingSuballocator<T>));
-            if (length == 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot rent a segment of size 0.");
+            if (length != _segmentLength) throw new ArgumentOutOfRangeException(nameof(length), $"Segment length must be user-defined length ({_segmentLength}).");
 
-            var rawSegment = Alloc(length);
+            var rawSegment = Alloc(_segmentLength);
 
             return new UnmanagedMemorySegment<T>(_pElems + rawSegment.Index, rawSegment.Length);
         }
@@ -100,35 +97,25 @@ namespace Suballocation
                 throw new OutOfMemoryException();
             }
 
-            var indexEntry = new IndexEntry() { Index = LengthUsed, Length = length };
-
-            _indexes.Push(indexEntry);
+            long index = LengthUsed;
 
             Allocations++;
             LengthUsed += length;
 
-            return new(indexEntry.Index, indexEntry.Length);
+            return new(index, length);
         }
 
         private unsafe void Free(long index, long length)
         {
-            if (_indexes.TryPop(out var topEntry) == false)
+            if (LengthUsed < _segmentLength)
             {
                 throw new ArgumentException($"No rented segments found.");
             }
 
-            if (topEntry.Index != index)
+            if (length != _segmentLength)
             {
-                throw new ArgumentException($"Returned segment does not have the expected index ({topEntry.Index}).");
+                throw new ArgumentException($"Returned segment does not have expected length ({_segmentLength:N0}).");
             }
-
-            if (topEntry.Length != length)
-            {
-                throw new ArgumentException($"Returned segment does not have expected length ({topEntry.Length:N0}).");
-            }
-
-            bool success = _indexes.TryPop(out _);
-            Debug.Assert(success, "Unable to pop from index stack.");
 
             Allocations--;
             LengthUsed -= length;
@@ -136,10 +123,8 @@ namespace Suballocation
 
         public void Clear()
         {
-            Allocations = 0;
             LengthUsed = 0;
-            _indexes.Clear();
-            _indexes.Push(new IndexEntry() { Index = 0, Length = LengthTotal });
+            Allocations = 0;
         }
 
         private void Dispose(bool disposing)
@@ -148,10 +133,10 @@ namespace Suballocation
             {
                 if (disposing)
                 {
-                    _indexes.Dispose();
+                    // TODO: dispose managed state (managed objects)
                 }
 
-                _memoryHandle.Dispose(); 
+                _memoryHandle.Dispose();
 
                 if (_privatelyOwned)
                 {
@@ -162,7 +147,7 @@ namespace Suballocation
             }
         }
 
-        ~StackSuballocator()
+        ~FixedStackSuballocator()
         {
             Dispose(disposing: false);
         }
@@ -171,15 +156,6 @@ namespace Suballocation
         {
             Dispose(disposing: true);
             GC.SuppressFinalize(this);
-        }
-
-        readonly struct IndexEntry
-        {
-            private readonly long _offset;
-            private readonly long _length;
-
-            public long Index { get => _offset; init => _offset = value; }
-            public long Length { get => _length; init => _length = value; }
         }
     }
 }

@@ -1,72 +1,13 @@
-﻿using System.Diagnostics;
+﻿using System.Collections;
+using System.Diagnostics;
 using Suballocation;
 
-
-/*
-var config =
-	ManualConfig
-	.CreateEmpty() // A configuration for our benchmarks
-	.WithOptions(ConfigOptions.DisableOptimizationsValidator)
-	.WithOptions(ConfigOptions.JoinSummary)
-	.AddLogger(ConsoleLogger.Default)
-	.AddJob(Job.Default // Adding second job
-		//.WithRuntime(ClrRuntime.Net472) // .NET Framework 4.7.2
-		//.WithPlatform(Platform.X64) // Run as x64 application
-		//.WithJit(Jit.LegacyJit) // Use LegacyJIT instead of the default RyuJIT
-		//.WithGcServer(true) // Use Server GC
-		.AsBaseline() // It will be marked as baseline
-		.WithWarmupCount(1) // Disable warm-up stage
-		
-	);
-
-BenchmarkRunner.Run<Testt>(config);
-//Console.WriteLine(summary);
-Console.ReadKey();
-
-public class Testt
+unsafe void Test3()
 {
-	[Benchmark]
-	public unsafe void Test1()
-	{
-		try
-		{
-			var allocator = new BuddyAllocator<int>(2048, 1024, true);
-
-			for (int i = 0; i < 100; i++)
-			{
-				var ptr1 = allocator.Rent(1024);
-				var ptr2 = allocator.Rent(1024);
-
-				allocator.Return(ptr1);
-				allocator.Return(ptr2);
-			}
-		}
-		catch(Exception ex)
-		{
-			Debugger.Break();
-		}
-	}
-
-	[Benchmark]
-	public unsafe void Test2()
-	{
-		var allocator = new BuddyAllocator<int>(2048, 1024, true);
-
-		for (int i = 0; i < 100; i++)
-		{
-			var ptr1 = allocator.Rent(1024);
-			var ptr2 = allocator.Rent(1024);
-
-			allocator.Return(ptr1);
-			allocator.Return(ptr2);
-		}
-	}
-}*/
-
-
-void Test3()
-{
-	var allocator = new LocalityAllocator<int>(65536 * 3, 1024, true);
+	long blockSize = 1024;
+	long bufferLen = 65536 * 3;
+	var allocator = new SweepingSuballocator<int>(bufferLen, blockSize);
+	BitArray bitArray = new BitArray((int)(allocator.LengthTotal / allocator.BlockLength));
 
 	try
 	{
@@ -74,18 +15,33 @@ void Test3()
 		Queue<UnmanagedMemorySegment<int>> ptrs = new Queue<UnmanagedMemorySegment<int>>();
 		for (ulong i = 0; ; i++)
 		{
+			var len = random.Next(3) == 0 ? 2048 : 800L;
 			if (random.Next(3) >= 1)
-				ptrs.Enqueue(allocator.Rent(random.Next(3) == 0 ? 2048 : 800l));
-			else if (ptrs.Count > 0)
 			{
+				var seg = allocator.Rent(len);
+				ptrs.Enqueue(seg);
+
+				for (long j = 0; j < seg.Length / allocator.BlockLength; j++)
+					bitArray[(int)(((long)(seg.PElems - allocator.PElems)) / allocator.BlockLength)] = true;
+			}
+			else if (ptrs.Count > 0)
+			{				
 				var index = random.Next(Math.Min(100, ptrs.Count));
 				for (int j = 0; j < index; j++)
 					ptrs.Enqueue(ptrs.Dequeue());
 				if (ptrs.Count > 0)
-					allocator.Return(ptrs.Dequeue());
+				{
+					var seg = ptrs.Dequeue();
+					allocator.Return(seg);
+
+					for (long j = 0; j < seg.Length / allocator.BlockLength; j++)
+						bitArray[(int)(((long)(seg.PElems - allocator.PElems)) / allocator.BlockLength)] = false;
+				}
 			}
 
-			allocator.PrintBlocks();
+			for (int j = 0; j < bitArray.Length; j++)
+				Console.Write(bitArray[j] ? 'X' : '_');
+			Console.WriteLine();
 		}
 	}
 	catch (OutOfMemoryException)
@@ -94,6 +50,7 @@ void Test3()
 	}
 }
 
+/*
 void Test2()
 {
 	var allocator = new BuddyAllocator<int>(65536, 1024, true);
@@ -135,7 +92,7 @@ unsafe void Test()
 		allocator.Return(ptr3);
 		allocator.Return(ptr4);
 	}
-}
+}*/
 
 Test3();
 

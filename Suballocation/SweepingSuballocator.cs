@@ -1,5 +1,5 @@
 ﻿
-#define TRACE_OUTPUT
+//#define TRACE_OUTPUT
 
 using System;
 using System.Buffers;
@@ -9,9 +9,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 
-// Sequential fit
 // Stack + reverse (for double stack).  Can remove from end or clear.
-// stack for single size?
 // Ring buffer
 // .net GC
 // reversible sequential fit / below
@@ -40,21 +38,21 @@ using System.Runtime.InteropServices;
 
 namespace Suballocation
 {
-    public unsafe sealed class LocalityAllocator<T> : ISuballocator<T>, IDisposable where T : unmanaged
+    public unsafe sealed class SweepingSuballocator<T> : ISuballocator<T>, IDisposable where T : unmanaged
     {
         public readonly long BlockLength;
         private readonly T* _pElems;
         private readonly MemoryHandle _memoryHandle;
         private readonly bool _privatelyOwned;
         private readonly long _blockCount;
-        private readonly Dictionary<long, long> _occupiedIndexes = new();
-        private readonly Stack<IndexEntry> _prevIndexes = new();
-        private readonly Stack<IndexEntry> _nextIndexes = new();
+        private readonly NativeBitArray _allocatedIndexes;
+        private readonly NativeStack<IndexEntry> _prevIndexes = new();
+        private readonly NativeStack<IndexEntry> _nextIndexes = new();
         private long _balance;
         private long _head;
         private bool _disposed;
 
-        public LocalityAllocator(long length, long blockLength, bool zeroed = false)
+        public SweepingSuballocator(long length, long blockLength)
         {
             if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot allocate a backing buffer of size <= 0.");
             if (blockLength <= 0) throw new ArgumentOutOfRangeException(nameof(blockLength), $"Cannot use a block length of <= 0.");
@@ -63,23 +61,16 @@ namespace Suballocation
             LengthTotal = length;
             BlockLength = blockLength;
             _blockCount = length / blockLength;
+            _allocatedIndexes = new NativeBitArray(length);
 
-            if (zeroed)
-            {
-                _pElems = (T*)NativeMemory.AllocZeroed((nuint)length, (nuint)Unsafe.SizeOf<T>());
-            }
-            else
-            {
-                _pElems = (T*)NativeMemory.Alloc((nuint)length, (nuint)Unsafe.SizeOf<T>());
-            }
-
+            _pElems = (T*)NativeMemory.Alloc((nuint)length, (nuint)Unsafe.SizeOf<T>());
             _privatelyOwned = true;
 
-            _nextIndexes.Push(new IndexEntry() { Offset = 0, Length = _blockCount * blockLength });
+            _nextIndexes.Push(new IndexEntry() { Index = 0, Length = _blockCount * blockLength });
             _balance = _nextIndexes.Peek().Length;
         }
 
-        public LocalityAllocator(T* pData, long length, long blockLength)
+        public SweepingSuballocator(T* pData, long length, long blockLength)
         {
             if (pData == null) throw new ArgumentNullException(nameof(pData));
             if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot allocate a backing buffer of size <= 0.");
@@ -89,13 +80,15 @@ namespace Suballocation
             LengthTotal = length;
             BlockLength = blockLength;
             _blockCount = length / blockLength;
+            _allocatedIndexes = new NativeBitArray(length);
+
             _pElems = pData;
 
-            _nextIndexes.Push(new IndexEntry() { Offset = 0, Length = _blockCount * blockLength });
+            _nextIndexes.Push(new IndexEntry() { Index = 0, Length = _blockCount * blockLength });
             _balance = _nextIndexes.Peek().Length;
         }
 
-        public LocalityAllocator(Memory<T> data, long blockLength)
+        public SweepingSuballocator(Memory<T> data, long blockLength)
         {
             if (blockLength <= 0) throw new ArgumentOutOfRangeException(nameof(blockLength), $"Cannot use a block length of <= 0.");
             if (blockLength > data.Length) throw new ArgumentOutOfRangeException(nameof(blockLength), $"Cannot use a block length that's larger than {nameof(data.Length)}.");
@@ -104,9 +97,11 @@ namespace Suballocation
             BlockLength = blockLength;
             _blockCount = LengthTotal / blockLength;
             _memoryHandle = data.Pin();
+            _allocatedIndexes = new NativeBitArray(data.Length);
+
             _pElems = (T*)_memoryHandle.Pointer;
 
-            _nextIndexes.Push(new IndexEntry() { Offset = 0, Length = _blockCount * blockLength });
+            _nextIndexes.Push(new IndexEntry() { Index = 0, Length = _blockCount * blockLength });
             _balance = _nextIndexes.Peek().Length;
         }
 
@@ -114,47 +109,49 @@ namespace Suballocation
 
         public long SizeTotal => LengthTotal * (long)Unsafe.SizeOf<T>();
 
+        public long Allocations { get; private set; }
+
         public long LengthUsed { get; private set; }
 
         public long LengthTotal { get; init; }
 
-        public long Allocations { get; private set; }
+        public T* PElems => _pElems;
 
         public UnmanagedMemorySegmentResource<T> RentResource(long length = 1)
         {
-            if (_disposed) throw new ObjectDisposedException(nameof(LocalityAllocator<T>));
+            if (_disposed) throw new ObjectDisposedException(nameof(SweepingSuballocator<T>));
             if (length == 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot rent a segment of size 0.");
 
             var rawSegment = Alloc(length);
 
-            return new UnmanagedMemorySegmentResource<T>(this, _pElems + rawSegment.Offset, rawSegment.Length);
+            return new UnmanagedMemorySegmentResource<T>(this, _pElems + rawSegment.Index, rawSegment.Length);
         }
 
         public void ReturnResource(UnmanagedMemorySegmentResource<T> segment)
         {
-            if (_disposed) throw new ObjectDisposedException(nameof(LocalityAllocator<T>));
+            if (_disposed) throw new ObjectDisposedException(nameof(SweepingSuballocator<T>));
 
             Free(segment.PElems - _pElems, segment.Length);
         }
 
         public UnmanagedMemorySegment<T> Rent(long length = 1)
         {
-            if (_disposed) throw new ObjectDisposedException(nameof(LocalityAllocator<T>));
+            if (_disposed) throw new ObjectDisposedException(nameof(SweepingSuballocator<T>));
             if (length == 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot rent a segment of size 0.");
 
             var rawSegment = Alloc(length);
 
-            return new UnmanagedMemorySegment<T>(_pElems + rawSegment.Offset, rawSegment.Length);
+            return new UnmanagedMemorySegment<T>(_pElems + rawSegment.Index, rawSegment.Length);
         }
 
         public void Return(UnmanagedMemorySegment<T> segment)
         {
-            if (_disposed) throw new ObjectDisposedException(nameof(LocalityAllocator<T>));
+            if (_disposed) throw new ObjectDisposedException(nameof(SweepingSuballocator<T>));
 
             Free(segment.PElems - _pElems, segment.Length);
         }
 
-        private unsafe (long Offset, long Length) Alloc(long length)
+        private unsafe (long Index, long Length) Alloc(long length)
         {
 #if TRACE_OUTPUT
             Console.WriteLine($"Rent length desired: {length:N0}");
@@ -166,19 +163,19 @@ namespace Suballocation
                 blockLength += BlockLength;
             }
 
-            while (_prevIndexes.TryPeek(out var previousEntryForMove) && previousEntryForMove.Offset >= _head)
+            while (_prevIndexes.TryPeek(out var previousEntryForMove) && previousEntryForMove.Index >= _head)
             {
                 _nextIndexes.Push(_prevIndexes.Pop());
 
-                if (_occupiedIndexes.ContainsKey(previousEntryForMove.Offset) == false)
+                if (_allocatedIndexes[previousEntryForMove.Index] == false)
                     _balance += (long)previousEntryForMove.Length << 1;
             }
 
-            while (_nextIndexes.TryPeek(out var nextEntryForMove) && nextEntryForMove.Offset < _head)
+            while (_nextIndexes.TryPeek(out var nextEntryForMove) && nextEntryForMove.Index < _head)
             {
                 _prevIndexes.Push(_nextIndexes.Pop());
 
-                if (_occupiedIndexes.ContainsKey(nextEntryForMove.Offset) == false)
+                if (_allocatedIndexes[nextEntryForMove.Index] == false)
                     _balance -= (long)nextEntryForMove.Length << 1;
             }
 
@@ -190,12 +187,12 @@ namespace Suballocation
                 }
 
                 if (_prevIndexes.TryPeek(out var previousEntry2) == true
-                    && _occupiedIndexes.ContainsKey(previousEntry1.Offset) == false
-                    && _occupiedIndexes.ContainsKey(previousEntry2.Offset) == false
-                    && previousEntry2.Offset + previousEntry2.Length == previousEntry1.Offset)
+                    && _allocatedIndexes[previousEntry1.Index] == false
+                    && _allocatedIndexes[previousEntry2.Index] == false
+                    && previousEntry2.Index + previousEntry2.Length == previousEntry1.Index)
                 {
                     _prevIndexes.Pop();
-                    _prevIndexes.Push(new IndexEntry() { Offset = previousEntry2.Offset, Length = previousEntry2.Length + previousEntry1.Length });
+                    _prevIndexes.Push(new IndexEntry() { Index = previousEntry2.Index, Length = previousEntry2.Length + previousEntry1.Length });
                 }
                 else
                 {
@@ -212,12 +209,12 @@ namespace Suballocation
                 }
 
                 if (_nextIndexes.TryPeek(out var nextEntry2) == true
-                    && _occupiedIndexes.ContainsKey(nextEntry1.Offset) == false
-                    && _occupiedIndexes.ContainsKey(nextEntry2.Offset) == false
-                    && nextEntry1.Offset + nextEntry1.Length == nextEntry2.Offset)
+                    && _allocatedIndexes[nextEntry1.Index] == false
+                    && _allocatedIndexes[nextEntry2.Index] == false
+                    && nextEntry1.Index + nextEntry1.Length == nextEntry2.Index)
                 {
                     _nextIndexes.Pop();
-                    _nextIndexes.Push(new IndexEntry() { Offset = nextEntry1.Offset, Length = nextEntry1.Length + nextEntry2.Length });
+                    _nextIndexes.Push(new IndexEntry() { Index = nextEntry1.Index, Length = nextEntry1.Length + nextEntry2.Length });
                 }
                 else
                 {
@@ -233,7 +230,7 @@ namespace Suballocation
             {
                 while (_nextIndexes.TryPop(out var nextEntry) == true)
                 {
-                    if (nextEntry.Length >= length && _occupiedIndexes.ContainsKey(nextEntry.Offset) == false)
+                    if (nextEntry.Length >= length && _allocatedIndexes[nextEntry.Index] == false)
                     {
                         found = true;
                         emptyEntry = nextEntry;
@@ -244,7 +241,7 @@ namespace Suballocation
                     {
                         _prevIndexes.Push(nextEntry);
 
-                        if (_occupiedIndexes.ContainsKey(nextEntry.Offset) == false)
+                        if (_allocatedIndexes[nextEntry.Index] == false)
                             _balance -= (long)nextEntry.Length << 1;
                     }
                 }
@@ -254,7 +251,7 @@ namespace Suballocation
             {
                 while (_prevIndexes.TryPop(out var prevEntry) == true)
                 {
-                    if (prevEntry.Length >= length && _occupiedIndexes.ContainsKey(prevEntry.Offset) == false)
+                    if (prevEntry.Length >= length && _allocatedIndexes[prevEntry.Index] == false)
                     {
                         found = true;
                         emptyEntry = prevEntry;
@@ -265,7 +262,7 @@ namespace Suballocation
                     {
                         _nextIndexes.Push(prevEntry);
 
-                        if (_occupiedIndexes.ContainsKey(prevEntry.Offset) == false)
+                        if (_allocatedIndexes[prevEntry.Index] == false)
                             _balance += (long)prevEntry.Length << 1;
                     }
                 }
@@ -288,21 +285,21 @@ namespace Suballocation
             }
 
             // Split out an empty entry if required size is less than the block given
-            long offset = emptyEntry.Offset;
+            long offset = emptyEntry.Index;
             if (emptyEntry.Length > blockLength)
             {
-                if (emptyEntry.Offset < _head)
+                if (emptyEntry.Index < _head)
                 {
                     // Swap places with the new entry, to be closer to the current index
-                    _prevIndexes.Push(new IndexEntry() { Offset = emptyEntry.Offset, Length = emptyEntry.Length - blockLength });
+                    _prevIndexes.Push(new IndexEntry() { Index = emptyEntry.Index, Length = emptyEntry.Length - blockLength });
 
                     _balance -= (long)_prevIndexes.Peek().Length;
 
-                    offset = (emptyEntry.Offset + emptyEntry.Length) - blockLength;
+                    offset = (emptyEntry.Index + emptyEntry.Length) - blockLength;
                 }
                 else
                 {
-                    _nextIndexes.Push(new IndexEntry() { Offset = emptyEntry.Offset + blockLength, Length = emptyEntry.Length - blockLength });
+                    _nextIndexes.Push(new IndexEntry() { Index = emptyEntry.Index + blockLength, Length = emptyEntry.Length - blockLength });
 
                     _balance += (long)_nextIndexes.Peek().Length;
                 }
@@ -312,16 +309,16 @@ namespace Suballocation
 #endif
             }
 
-            if (emptyEntry.Offset < _head)
+            if (emptyEntry.Index < _head)
             {
-                _prevIndexes.Push(new IndexEntry() { Offset = offset, Length = blockLength });
+                _prevIndexes.Push(new IndexEntry() { Index = offset, Length = blockLength });
             }
             else
             {
-                _nextIndexes.Push(new IndexEntry() { Offset = offset, Length = blockLength });
+                _nextIndexes.Push(new IndexEntry() { Index = offset, Length = blockLength });
             }
 
-            _occupiedIndexes.Add(offset, blockLength);
+            _allocatedIndexes[offset] = true;
 
 #if TRACE_OUTPUT
             Console.WriteLine($"Free block of count {blockLength} found at offset {offset}.");
@@ -332,25 +329,22 @@ namespace Suballocation
             Allocations++;
             LengthUsed += blockLength;
 
-            return new (offset, blockLength);
+            return new(offset, blockLength);
         }
 
         private unsafe void Free(long offset, long length)
         {
-            if (_occupiedIndexes.Remove(offset, out var foundLength) == false)
+            if (_allocatedIndexes[offset] == false)
             {
                 throw new ArgumentException($"No rented segment at offset {offset} found.");
             }
 
-            if (length != foundLength)
-            {
-                throw new ArgumentException($"Rented segment returned does not have expected length ({foundLength:N0}).");
-            }
+            _allocatedIndexes[offset] = false;
 
             if (offset >= _head)
-                _balance += foundLength;
+                _balance += length;
             else
-                _balance -= foundLength;
+                _balance -= length;
 
             Allocations--;
             LengthUsed -= length;
@@ -360,27 +354,16 @@ namespace Suballocation
 #endif
         }
 
-#if TRACE_OUTPUT
-        public void PrintBlocks()
+        public void Clear()
         {
-            var list = _prevIndexes
-                .Concat(_nextIndexes)
-                .OrderBy(entry => entry.Offset)
-                .ToList();
-
-            for (int i = 0; i < list.Count; i++)
-            {
-                if (i < list.Count)
-                {
-                    char c = _occupiedIndexes.TryGetValue(list[i].Offset, out _) ? 'X' : '_';
-                    for (long j = 0; j < list[i].Length / BlockLength; j++)
-                        Console.Write(c);
-                }
-            }
-
-            Console.WriteLine();
+            Allocations = 0;
+            LengthUsed = 0;
+            _nextIndexes.Clear();
+            _prevIndexes.Clear();
+            _allocatedIndexes.Clear();
+            _nextIndexes.Push(new IndexEntry() { Index = 0, Length = LengthTotal });
+            _balance = _nextIndexes.Peek().Length;
         }
-#endif
 
         private void Dispose(bool disposing)
         {
@@ -388,11 +371,10 @@ namespace Suballocation
             {
                 if (disposing)
                 {
-                    // TODO: dispose managed state (managed objects)
+                    _nextIndexes.Dispose();
+                    _prevIndexes.Dispose();
+                    _allocatedIndexes.Dispose();
                 }
-
-                // TODO: free unmanaged resources (unmanaged objects) and override finalizer
-                // TODO: set large fields to null
 
                 _memoryHandle.Dispose(); //todo: if default, what will happen?
 
@@ -405,7 +387,7 @@ namespace Suballocation
             }
         }
 
-        ~LocalityAllocator()
+        ~SweepingSuballocator()
         {
             Dispose(disposing: false);
         }
@@ -421,7 +403,7 @@ namespace Suballocation
             private readonly long _offset;
             private readonly long _length;
 
-            public long Offset { get => _offset; init => _offset = value; }
+            public long Index { get => _offset; init => _offset = value; }
             public long Length { get => _length; init => _length = value; }
         }
     }
