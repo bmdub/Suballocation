@@ -23,7 +23,7 @@ namespace Suballocation
 
             Length = length;
             LengthBytes = length / 8;
-            if ((length & BitOffsetMask) != 0) LengthBytes++;
+            if ((length & 255) != 0) LengthBytes++;
 
             _pData = (byte*)NativeMemory.AllocZeroed((nuint)LengthBytes);
         }
@@ -44,7 +44,7 @@ namespace Suballocation
 
                 if (value)
                 {
-                    _pData[byteIndex] = unchecked((byte)bitMask);
+                    _pData[byteIndex] |= unchecked((byte)bitMask);
                 }
                 else
                 {
@@ -59,7 +59,7 @@ namespace Suballocation
             {
                 uint length = (uint)Math.Min(uint.MaxValue, LengthBytes - i);
 
-                Unsafe.InitBlock(_pData, 0, length);
+                Unsafe.InitBlock(_pData + i, 0, length);
             }
         }
 

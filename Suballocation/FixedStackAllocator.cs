@@ -92,7 +92,7 @@ namespace Suballocation
 
         private unsafe (long Index, long Length) Alloc(long length)
         {
-            if (LengthUsed + length >= LengthTotal)
+            if (LengthUsed + length > LengthTotal)
             {
                 throw new OutOfMemoryException();
             }

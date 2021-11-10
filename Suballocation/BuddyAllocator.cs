@@ -19,30 +19,23 @@ using System.Threading.Tasks;
 
 namespace Suballocation
 {
-	public unsafe sealed class BuddyAllocator<T> : IDisposable where T : unmanaged
+	public unsafe sealed class BuddyAllocator<T> : ISuballocator<T>, IDisposable where T : unmanaged
 	{
-		public static readonly int ElementSize;
-
-		static BuddyAllocator()
-		{
-			ElementSize = Unsafe.SizeOf<T>();
-		}
-
-		static ulong LengthFromLogLength(int logLength) =>
-			1ul << logLength;
+		static long LengthFromLogLength(int logLength) =>
+			1l << logLength;
 
 		[StructLayout(LayoutKind.Sequential, Pack = 1)]
 		readonly struct BlockHeader
 		{
 			private readonly byte _infoByte;
-			private readonly ulong _prevFree;
-			private readonly ulong _nextFree;
+			private readonly long _prevFree;
+			private readonly long _nextFree;
 
 			public bool Occupied { get => (_infoByte & 0b1000_0000) != 0; init => _infoByte = value ? (byte)(_infoByte | 0b1000_0000) : (byte)(_infoByte & 0b0111_1111); }
 			public int BlockLengthLog { get => (_infoByte & 0b0111_1111); init => _infoByte = (byte)((_infoByte & 0b1000_0000) | (value & 0b0111_1111)); }
-			public ulong BlockLength
+			public long BlockLength
 			{
-				get => (1ul << BlockLengthLog);
+				get => (1l << BlockLengthLog);
 				init
 				{
 					if (BitOperations.IsPow2(value) == false)
@@ -54,57 +47,85 @@ namespace Suballocation
 				}
 			}
 
-			public ulong PreviousFree { get => _prevFree; init => _prevFree = value; }
-			public ulong NextFree { get => _nextFree; init => _nextFree = value; }
+			public long PreviousFree { get => _prevFree; init => _prevFree = value; }
+			public long NextFree { get => _nextFree; init => _nextFree = value; }
 		}
 
-		public ulong Length { get; init; }
-		public ulong Size => Length * (ulong)ElementSize;
-		public ulong SizeUsed => LengthUsed * (ulong)ElementSize;
-		public ulong LengthUsed => BlocksUsed * MinBlockLength;
-		public ulong BlocksUsed { get; private set; }
-		public ulong Allocations { get; private set; }
-		public readonly ulong MinBlockLength;
-		private readonly int _blockShift;
-		private readonly T* _pData;
+		public long MinBlockLength;
 		private readonly MemoryHandle _memoryHandle;
 		private readonly bool _privatelyOwned;
-		private readonly BlockHeader* _pIndex;
-		private readonly ulong _indexLength;
-		private readonly ulong[] _freeBlockIndexesStart;
-		private readonly int _blockLengths;
+		private T* _pElems;
+		private BlockHeader* _pIndex;
+        private long _maxBlockLength;
+        private long _indexLength;
+		private long[] _freeBlockIndexesStart;
+		private int _blockLengths;
 		private bool _disposed;
 
-		public BuddyAllocator(ulong length, ulong minBlockLength = 1, bool zeroed = false)
+		public BuddyAllocator(long length, long minBlockLength = 1, bool zeroed = false)
 		{
 			if (length == 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot allocate a backing buffer of size 0.");
 			if (minBlockLength > length) throw new ArgumentOutOfRangeException(nameof(minBlockLength), $"Cannot have a block size that's larger than {nameof(length)}.");
 
-			Length = length;
+			LengthTotal = length;
 			_privatelyOwned = true;
 			if (zeroed)
 			{
-				_pData = (T*)NativeMemory.AllocZeroed((nuint)length, (nuint)ElementSize);
+				_pElems = (T*)NativeMemory.AllocZeroed((nuint)length, (nuint)Unsafe.SizeOf<T>());
 			}
 			else
 			{
-				_pData = (T*)NativeMemory.Alloc((nuint)length, (nuint)ElementSize);
+				_pElems = (T*)NativeMemory.Alloc((nuint)length, (nuint)Unsafe.SizeOf<T>());
 			}
-			MinBlockLength = BitOperations.RoundUpToPowerOf2(minBlockLength);
-			_blockShift = BitOperations.TrailingZeroCount(MinBlockLength);
 
-			_indexLength = length >> _blockShift; //?
-			_pIndex = (BlockHeader*)NativeMemory.AllocZeroed((nuint)(_indexLength * (ulong)sizeof(BlockHeader)));
-			var maxBlockLength = BitOperations.RoundUpToPowerOf2(_indexLength);
-			var maxBlockShift = BitOperations.TrailingZeroCount(maxBlockLength);
+			Init(minBlockLength);
+		}
+
+		public BuddyAllocator(T* pData, long length, long minBlockLength = 1)
+		{
+			if (length == 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot allocate a BuddyAllocator of size 0.");
+			if (minBlockLength > length) throw new ArgumentOutOfRangeException(nameof(minBlockLength), $"Cannot have a block size that's larger than {nameof(length)}.");
+			if (pData == null) throw new ArgumentNullException(nameof(pData));
+
+			LengthTotal = length;
+			_pElems = pData;
+
+			Init(minBlockLength);
+		}
+
+		public BuddyAllocator(Memory<T> data, long minBlockLength = 1)
+		{
+			if (data.Length == 0) throw new ArgumentOutOfRangeException(nameof(data), $"Cannot allocate a BuddyAllocator of size 0.");
+			if (minBlockLength > (uint)data.Length) throw new ArgumentOutOfRangeException(nameof(minBlockLength), $"Cannot have a block size that's larger than {nameof(data.Length)}.");
+
+			LengthTotal = (long)data.Length;
+			_memoryHandle = data.Pin();
+			_pElems = (T*)_memoryHandle.Pointer;
+
+			Init(minBlockLength);
+		}
+
+		private void Init(long minBlockLength)
+		{
+			MinBlockLength = (long)BitOperations.RoundUpToPowerOf2((ulong)minBlockLength);
+
+			_indexLength = LengthTotal >> BitOperations.TrailingZeroCount(MinBlockLength);
+			_pIndex = (BlockHeader*)NativeMemory.AllocZeroed((nuint)(_indexLength * (long)sizeof(BlockHeader)));
+			_maxBlockLength = (long)BitOperations.RoundUpToPowerOf2((ulong)_indexLength);
+			var maxBlockShift = BitOperations.TrailingZeroCount(_maxBlockLength);
 			_blockLengths = maxBlockShift + 1;
-			_freeBlockIndexesStart = new ulong[_blockLengths];
-			_freeBlockIndexesStart.AsSpan().Fill(ulong.MaxValue);
+			_freeBlockIndexesStart = new long[_blockLengths];
+			InitBlocks();
+		}
 
-			ulong index = 0;
+		private void InitBlocks()
+		{
+			_freeBlockIndexesStart.AsSpan().Fill(long.MaxValue);
+
+			long index = 0;
 			for (int i = 0; i < _freeBlockIndexesStart.Length; i++)
 			{
-				var blockLength = maxBlockLength >> i;
+				var blockLength = _maxBlockLength >> i;
 
 				if (blockLength > _indexLength - index)
 				{
@@ -115,55 +136,78 @@ namespace Suballocation
 
 				ref BlockHeader header = ref _pIndex[index];
 
-				header = header with { Occupied = false, BlockLengthLog = blockLengthLog, NextFree = ulong.MaxValue, PreviousFree = ulong.MaxValue };
+				header = header with { Occupied = false, BlockLengthLog = blockLengthLog, NextFree = long.MaxValue, PreviousFree = long.MaxValue };
 
 				_freeBlockIndexesStart[_freeBlockIndexesStart.Length - i - 1] = index;
 
 				index += header.BlockLength;
 			}
-
-#if TRACE_OUTPUT
-			Console.WriteLine($"Length: {Length:N0}");
-			Console.WriteLine($"MinBlockLength desired: {minBlockLength:N0}");
-			Console.WriteLine($"MinBlockLength actual: {MinBlockLength:N0}");
-			Console.WriteLine($"Index length: {_indexLength:N0}");
-			Console.WriteLine($"Block sizes: {_blockLengths:N0}");
-			for (int i = 0; i < _freeBlockIndexesStart.Length; i++)
-				Console.WriteLine($"Free index start [{i}]: {_freeBlockIndexesStart[i]:N0}");
-#endif
 		}
 
-		public BuddyAllocator(T* pData, ulong length, ulong minBlockLength = 1)
+		public long BlocksUsed { get; private set; }
+
+		public long SizeUsed => LengthUsed * (long)Unsafe.SizeOf<T>();
+
+		public long SizeTotal => LengthTotal * (long)Unsafe.SizeOf<T>();
+
+		public long Allocations { get; private set; }
+
+		public long LengthUsed { get => BlocksUsed * MinBlockLength; }
+
+		public long LengthTotal { get; init; }
+
+		public T* PElems => _pElems;
+
+
+
+		public UnmanagedMemorySegmentResource<T> RentResource(long length = 1)
 		{
-			if (length == 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot allocate a BuddyAllocator of size 0.");
-			if (minBlockLength > length) throw new ArgumentOutOfRangeException(nameof(minBlockLength), $"Cannot have a block size that's larger than {nameof(length)}.");
-			if (pData == null) throw new ArgumentNullException(nameof(pData));
+			if (_disposed) throw new ObjectDisposedException(nameof(SweepingSuballocator<T>));
+			if (length == 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot rent a segment of size 0.");
 
-			Length = length;
-			_pData = pData;
-			MinBlockLength = BitOperations.RoundUpToPowerOf2(minBlockLength);
+			var rawSegment = Alloc(length);
 
+			return new UnmanagedMemorySegmentResource<T>(this, _pElems + rawSegment.Index * MinBlockLength, rawSegment.Length);
 		}
 
-		public BuddyAllocator(Memory<T> data, ulong minBlockLength = 1)
+		public void ReturnResource(UnmanagedMemorySegmentResource<T> segment)
 		{
-			if (data.Length == 0) throw new ArgumentOutOfRangeException(nameof(data), $"Cannot allocate a BuddyAllocator of size 0.");
-			if (minBlockLength > (uint)data.Length) throw new ArgumentOutOfRangeException(nameof(minBlockLength), $"Cannot have a block size that's larger than {nameof(data.Length)}.");
+			if (_disposed) throw new ObjectDisposedException(nameof(SweepingSuballocator<T>));
 
-			Length = (ulong)data.Length;
-			_memoryHandle = data.Pin();
-			_pData = (T*)_memoryHandle.Pointer;
-			MinBlockLength = BitOperations.RoundUpToPowerOf2(minBlockLength);
-
+			Free(segment.PElems - _pElems, segment.Length);
 		}
 
-		public unsafe T* Rent(ulong length = 1)
+		public UnmanagedMemorySegment<T> Rent(long length = 1)
+		{
+			if (_disposed) throw new ObjectDisposedException(nameof(SweepingSuballocator<T>));
+			if (length == 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot rent a segment of size 0.");
+
+			var rawSegment = Alloc(length);
+
+			return new UnmanagedMemorySegment<T>(_pElems + rawSegment.Index * MinBlockLength, rawSegment.Length);
+		}
+
+		public void Return(UnmanagedMemorySegment<T> segment)
+		{
+			if (_disposed) throw new ObjectDisposedException(nameof(SweepingSuballocator<T>));
+
+			Free(segment.PElems - _pElems, segment.Length);
+		}
+
+
+
+
+
+
+
+		private unsafe (long Index, long Length) Alloc(long length)
 		{
 			if (length == 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot rent a segment of size 0.");
 			if (_disposed) throw new ObjectDisposedException(nameof(BuddyAllocator<T>));
 
-			T* segmentPtr = null;
-			int blockLengthIndex = (int)(BitOperations.RoundUpToPowerOf2(length) >> (_blockShift + 1));
+			long index = -1;
+			long actualLength = -1;
+			int blockLengthIndex = BitOperations.Log2(BitOperations.RoundUpToPowerOf2((ulong)length));// (int)(BitOperations.RoundUpToPowerOf2((ulong)length) >> (_blockShift + 1));
 
 #if TRACE_OUTPUT
 			Console.WriteLine($"Rent length desired: {length:N0}");
@@ -171,10 +215,10 @@ namespace Suballocation
 
 			for (int i = blockLengthIndex; i < _freeBlockIndexesStart.Length; i++)
 			{
-				ulong freeBlockIndexIndex = _freeBlockIndexesStart[i];
+				long freeBlockIndexIndex = _freeBlockIndexesStart[i];
 
 				//todo: could do this check in constant time with bits
-				if (freeBlockIndexIndex == ulong.MaxValue)
+				if (freeBlockIndexIndex == long.MaxValue)
 				{
 					// no free blocks of idea size; try a larger size
 #if TRACE_OUTPUT
@@ -193,14 +237,14 @@ namespace Suballocation
 
 					RemoveFromFreeList(ref header1);
 
-					header1 = header1 with { BlockLengthLog = header1.BlockLengthLog - 1, NextFree = freeBlockIndexIndex + (1ul << (header1.BlockLengthLog - 1)), PreviousFree = ulong.MaxValue };
+					header1 = header1 with { BlockLengthLog = header1.BlockLengthLog - 1, NextFree = freeBlockIndexIndex + (1l << (header1.BlockLengthLog - 1)), PreviousFree = long.MaxValue };
 
 					ref BlockHeader header2 = ref _pIndex[header1.NextFree];
 					header2 = header2 with { BlockLengthLog = header1.BlockLengthLog, NextFree = _freeBlockIndexesStart[header1.BlockLengthLog], PreviousFree = freeBlockIndexIndex };
 
 					_freeBlockIndexesStart[header1.BlockLengthLog] = freeBlockIndexIndex;
 
-					if (header2.NextFree != ulong.MaxValue)
+					if (header2.NextFree != long.MaxValue)
 					{
 						ref BlockHeader nextHeader = ref _pIndex[header2.NextFree];
 						nextHeader = nextHeader with { PreviousFree = header1.NextFree };
@@ -227,54 +271,59 @@ namespace Suballocation
 
 				header = header with { Occupied = true, BlockLengthLog = blockLengthIndex };
 
-				segmentPtr = _pData + freeBlockIndexIndex * MinBlockLength;
+				index = freeBlockIndexIndex;
 
 				break;
 			}
 
-			if (segmentPtr == null)
+			if (index == -1)
 			{
 				throw new OutOfMemoryException();
 			}
 
 			Allocations++;
-			BlocksUsed += BitOperations.RoundUpToPowerOf2(length) / MinBlockLength;
+			BlocksUsed += (long)BitOperations.RoundUpToPowerOf2((ulong)length) / MinBlockLength;
 
-			return segmentPtr;
+			return (index, length);
 		}
 
-		public unsafe void Return(T* pSegment)
+		private unsafe void Free(long offset, long length)
 		{
-			if (pSegment == null) throw new ArgumentNullException(nameof(pSegment));
 			if (_disposed) throw new ObjectDisposedException(nameof(BuddyAllocator<T>));
 
-			ulong freeBlockIndexIndex = (ulong)(pSegment - _pData) / MinBlockLength;
+			long freeBlockIndexIndex = offset / MinBlockLength;
+
+			if (freeBlockIndexIndex < 0 || freeBlockIndexIndex >= _indexLength) 
+				throw new ArgumentNullException(nameof(offset));
 
 			ref BlockHeader header = ref _pIndex[freeBlockIndexIndex];
+
+			if (header.Occupied == false)
+				throw new ArgumentException($"No rented segment at offset {offset} found.");
 
 			header = header with { Occupied = false };
 
 			Allocations--;
-			BlocksUsed -= BitOperations.RoundUpToPowerOf2(header.BlockLength);
+			BlocksUsed -= (long)BitOperations.RoundUpToPowerOf2((ulong)header.BlockLength);
 
 #if TRACE_OUTPUT
 			Console.WriteLine($"Returning block of length {header.BlockLength} at index {freeBlockIndexIndex}.");
 #endif
 
-			void Combine(ulong blockIndexIndex, int lengthLog)
+			void Combine(long blockIndexIndex, int lengthLog)
 			{
 				ref BlockHeader header = ref _pIndex[blockIndexIndex];
 
-				var buddyBlockIndexIndex = blockIndexIndex ^ (1ul << lengthLog);
+				var buddyBlockIndexIndex = blockIndexIndex ^ (1l << lengthLog);
 
 				if (buddyBlockIndexIndex >= _indexLength)
 				{
 					// No buddy; at the end of the buffer.
-					var nextFree = _freeBlockIndexesStart[lengthLog] == blockIndexIndex ? ulong.MaxValue : _freeBlockIndexesStart[lengthLog];
-					header = header with { Occupied = false, BlockLengthLog = lengthLog, NextFree = nextFree, PreviousFree = ulong.MaxValue };
+					var nextFree = _freeBlockIndexesStart[lengthLog] == blockIndexIndex ? long.MaxValue : _freeBlockIndexesStart[lengthLog];
+					header = header with { Occupied = false, BlockLengthLog = lengthLog, NextFree = nextFree, PreviousFree = long.MaxValue };
 					_freeBlockIndexesStart[lengthLog] = blockIndexIndex;
 
-					if (nextFree != ulong.MaxValue)
+					if (nextFree != long.MaxValue)
 					{
 						ref BlockHeader nextHeader = ref _pIndex[header.NextFree];
 						nextHeader = nextHeader with { PreviousFree = blockIndexIndex };
@@ -288,11 +337,11 @@ namespace Suballocation
 				if (buddyHeader.Occupied == true)
 				{
 					// No free buddy
-					var nextFree = _freeBlockIndexesStart[lengthLog] == blockIndexIndex ? ulong.MaxValue : _freeBlockIndexesStart[lengthLog];
-					header = header with { Occupied = false, BlockLengthLog = lengthLog, NextFree = nextFree, PreviousFree = ulong.MaxValue };
+					var nextFree = _freeBlockIndexesStart[lengthLog] == blockIndexIndex ? long.MaxValue : _freeBlockIndexesStart[lengthLog];
+					header = header with { Occupied = false, BlockLengthLog = lengthLog, NextFree = nextFree, PreviousFree = long.MaxValue };
 					_freeBlockIndexesStart[lengthLog] = blockIndexIndex;
 
-					if (nextFree != ulong.MaxValue)
+					if (nextFree != long.MaxValue)
 					{
 						ref BlockHeader nextHeader = ref _pIndex[header.NextFree];
 						nextHeader = nextHeader with { PreviousFree = blockIndexIndex };
@@ -320,7 +369,7 @@ namespace Suballocation
 
 		private void RemoveFromFreeList(ref BlockHeader header)
 		{
-			if (header.NextFree != ulong.MaxValue)
+			if (header.NextFree != long.MaxValue)
 			{
 				ref BlockHeader nextHeader = ref _pIndex[header.NextFree];
 
@@ -328,7 +377,7 @@ namespace Suballocation
 
 				Debug.Assert(nextHeader.Occupied == false);
 
-				if (header.PreviousFree != ulong.MaxValue)
+				if (header.PreviousFree != long.MaxValue)
 				{
 					ref BlockHeader prevHeader = ref _pIndex[header.PreviousFree];
 
@@ -339,37 +388,42 @@ namespace Suballocation
 					_freeBlockIndexesStart[header.BlockLengthLog] = header.NextFree;
 				}
 			}
-			else if (header.PreviousFree != ulong.MaxValue)
+			else if (header.PreviousFree != long.MaxValue)
 			{
 				ref BlockHeader prevHeader = ref _pIndex[header.PreviousFree];
 
-				prevHeader = prevHeader with { NextFree = ulong.MaxValue };
+				prevHeader = prevHeader with { NextFree = long.MaxValue };
 			}
 			else
 			{
-				_freeBlockIndexesStart[header.BlockLengthLog] = ulong.MaxValue;
+				_freeBlockIndexesStart[header.BlockLengthLog] = long.MaxValue;
 			}
 		}
 
-		public void PrintBlocks()
+		public void Clear()
 		{
-			for(ulong i=0; i<_indexLength; i++)
+			Allocations = 0;
+			BlocksUsed = 0;
+
+			for (long i = 0; i < _indexLength; i += uint.MaxValue / Unsafe.SizeOf<BlockHeader>())
 			{
-				Console.Write(_pIndex[i].Occupied ? 'X' : '_');
+				uint length = (uint)Math.Min(uint.MaxValue / Unsafe.SizeOf<BlockHeader>(), _indexLength - i);
+
+				Unsafe.InitBlock(_pIndex + i, 0, length * (uint)Unsafe.SizeOf<BlockHeader>());
 			}
 
-			Console.WriteLine();
+			InitBlocks();
 		}
 
 
 
 
-		public static ulong GetLengthRequiredToPreventDefragmentation(ulong maxLength, ulong maxBlockSize)
+		public static long GetLengthRequiredToPreventDefragmentation(long maxLength, long maxBlockSize)
 		{
 			// Defoe, Delvin C., "Storage Coalescing" Report Number: WUCSE-2003-69 (2003). All Computer Science and Engineering Research.
 			// https://openscholarship.wustl.edu/cse_research/1115 
 			// M(log n + 2)/2
-			return (maxLength * ((ulong)Math.Log(maxBlockSize) + 2)) >> 1;
+			return (maxLength * ((long)Math.Log(maxBlockSize) + 2)) >> 1;
 		}
 
 
@@ -392,7 +446,7 @@ namespace Suballocation
 
 				if (_privatelyOwned)
 				{
-					NativeMemory.Free(_pData);
+					NativeMemory.Free(_pElems);
 				}
 
 				_disposed = true;

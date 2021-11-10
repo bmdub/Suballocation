@@ -8,13 +8,42 @@ using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
+//https://docs.microsoft.com/en-us/archive/msdn-magazine/2000/december/garbage-collection-part-2-automatic-memory-management-in-the-microsoft-net-framework 
+// The newer an object is, the shorter its lifetime will be.
+// The older an object is, the longer its lifetime will be.
+// Newer objects tend to have strong relationships to each other and are frequently accessed around the same time.
+// Compacting a portion of the heap is faster than compacting the whole heap.
 
-// Stack + reverse (for double stack).  Can remove from end or clear.
+//me
+// The larger an object is, the longer its lifetime will be.
+// The larger an object is, the larger the acceptable update window / placement distance.
+
+//todo: update window(s)
+// compaction
+// also option for full compaction?
+// consider segment updates, which will affect the update window. combine with compaction?
+// will starting capacities make better efficiency?
+
 // Ring buffer
 // .net GC
 // reversible sequential fit / below
+// arraypool / memorypool
 
 // update window(s).  need segment graph to merge? best to merge on demand. just return list.
+
+
+// tests
+// varying buffer sizes
+// varying block sizes
+// varying allocation sizes
+// different fixed levels of allocation sizes
+// update windows / locality of rentals
+// random free/rent for fixed level allocations
+// random free/rent for varying alloc sizes
+// avg free space when "filled" w/o compaction
+// overprovisioning needed
+// compaction rate (stat not test)
+// 
 
 
 // movement strategy objects
@@ -22,9 +51,6 @@ using System.Runtime.InteropServices;
 
 // fragmentation strategy objects
 // pushing away from center
-
-
-
 
 // single chain of used/free segments infos.
 // both are combined when in runs.
@@ -105,9 +131,9 @@ namespace Suballocation
             _balance = _nextIndexes.Peek().Length;
         }
 
-        public long SizeUsed => LengthUsed * (long)Unsafe.SizeOf<T>();
+        public long SizeUsed => LengthUsed * Unsafe.SizeOf<T>();
 
-        public long SizeTotal => LengthTotal * (long)Unsafe.SizeOf<T>();
+        public long SizeTotal => LengthTotal * Unsafe.SizeOf<T>();
 
         public long Allocations { get; private set; }
 
@@ -338,8 +364,6 @@ namespace Suballocation
             {
                 throw new ArgumentException($"No rented segment at offset {offset} found.");
             }
-
-            _allocatedIndexes[offset] = false;
 
             if (offset >= _head)
                 _balance += length;

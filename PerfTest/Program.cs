@@ -1,126 +1,73 @@
 ﻿using System.Collections;
 using System.Diagnostics;
-using BenchmarkDotNet.Attributes;
-using BenchmarkDotNet.Columns;
-using BenchmarkDotNet.Configs;
-using BenchmarkDotNet.Engines;
-using BenchmarkDotNet.Exporters;
-using BenchmarkDotNet.Jobs;
-using BenchmarkDotNet.Loggers;
-using BenchmarkDotNet.Order;
-using BenchmarkDotNet.Reports;
-using BenchmarkDotNet.Running;
 using Suballocation;
 
+namespace PerfTest;
 
-public class Program
+public partial class Program
 {
+	struct SomeStruct
+    {
+		long asdf;
+		long qwer;
+		TimeSpan TimeSpan;
+		int a;
+    }
+
     static void Main(string[] args)
     {
+		long length = 1 << 20;
 
-        var config =
-            ManualConfig
-            .CreateEmpty() // A configuration for our benchmarks
-            .WithOptions(ConfigOptions.DisableOptimizationsValidator)
-            //.WithOptions(ConfigOptions.JoinSummary)
-            .AddLogger(ConsoleLogger.Default)
-            .AddExporter(RPlotExporter.Default)
-            //.AddColumn(new GenericColumn("Method", cs => cs.Descriptor.WorkloadMethod.Name))
-            //.AddColumn(new GenericColumn("Parameter", cs => cs.Job.))
-            //.AddColumn(new GenericColumn("idk", cs => cs.Job.DisplayInfo))
-            //.AddColumn(StatisticColumn.Min)
-            //.AddColumn(StatisticColumn.Max)
-            //.AddColumn(StatisticColumn.Mean)
-            //.AddColumn(StatisticColumn.Median)
-            .WithOrderer(new DefaultOrderer(SummaryOrderPolicy.Declared, MethodOrderPolicy.Declared))
-            //.AddColumnProvider(new ParamsColumnProvider())
-            .AddColumnProvider(DefaultColumnProviders.Instance)
-            .AddJob(Job.Default // Adding second job
-                                //.WithRuntime(ClrRuntime.Net472) // .NET Framework 4.7.2
-                                //.WithPlatform(Platform.X64) // Run as x64 application
-                                //.WithJit(Jit.LegacyJit) // Use LegacyJIT instead of the default RyuJIT
-                                //.WithGcServer(true) // Use Server GC
-                                //.AsBaseline() // It will be marked as baseline
-                                //.WithWarmupCount(0) // Disable warm-up stage
-                .WithUnrollFactor(1)
-                .WithInvocationCount(1)
-                .WithIterationCount(1)
-                .WithWarmupCount(0)
-            );
+		Test<SomeStruct>(1, length, (int)(length / 10000));
 
-        BenchmarkRunner.Run<Benchmarkz>(config);
-        //Console.WriteLine(summary);
         Console.ReadKey();
     }
 
+	static void Test<T>(int iterations, long length, int maxSegLen) where T : unmanaged
+	{
+		var results = new List<BenchmarkResult>()
+		{
+			new SequentialFillFixedBenchmark<T>(new FixedStackSuballocator<T>(length, 1)).Run(iterations),
+			new SequentialFillFixedBenchmark<T>(new StackSuballocator<T>(length)).Run(iterations),
+			new SequentialFillFixedBenchmark<T>(new SweepingSuballocator<T>(length, 1)).Run(iterations),
+			new SequentialFillFixedBenchmark<T>(new BuddyAllocator<T>(length, 1)).Run(iterations),
 
-    public struct SuballocatorWrapper<T> where T : unmanaged
+			new SequentialFillReturnFixedBenchmark<T>(new FixedStackSuballocator<T>(length, 1)).Run(iterations),
+			new SequentialFillReturnFixedBenchmark<T>(new StackSuballocator<T>(length)).Run(iterations),
+			new SequentialFillReturnFixedBenchmark<T>(new SweepingSuballocator<T>(length, 1)).Run(iterations),
+			new SequentialFillReturnFixedBenchmark<T>(new BuddyAllocator<T>(length, 1)).Run(iterations),
+
+			new SequentialFillVariableBenchmark<T>(new FixedStackSuballocator<T>(length, 1), 0, maxSegLen).Run(iterations),
+			new SequentialFillVariableBenchmark<T>(new StackSuballocator<T>(length), 0, maxSegLen).Run(iterations),
+			new SequentialFillVariableBenchmark<T>(new SweepingSuballocator<T>(length, 1), 0, maxSegLen).Run(iterations),
+			new SequentialFillVariableBenchmark<T>(new BuddyAllocator<T>(length, 1), 0, maxSegLen).Run(iterations),
+		};
+
+		results.GroupBy(result => result.GetValue("Allocator")).WriteToConsole();
+
+		results.WriteToGroupedBarGraph();
+	}
+
+    static void RunBenmarksFor(int iterations, params BenchmarkBase[] benchmarks)
     {
-        public ISuballocator<T> Suballocator { get; set; }
-
-        public override string ToString() => Suballocator.GetType().Name;
-    }
-
-
-    //[SimpleJob(RunStrategy.ColdStart, targetCount: 5)]
-    [DryJob]
-    public class Benchmarkz
-    {
-        [ParamsSource(nameof(GetAllocators))]
-        public SuballocatorWrapper<int> _allocator;
-
-        public IEnumerable<SuballocatorWrapper<int>> GetAllocators()
+        foreach (var benchmark in benchmarks)
         {
-            yield return new SuballocatorWrapper<int>() { Suballocator = new StackSuballocator<int>(1) };
-            yield return new SuballocatorWrapper<int>() { Suballocator = new SweepingSuballocator<int>(1, 1) };
-            //yield return new BuddyAllocator<int>(2048, 1024, true);
+			try
+			{
+				Console.WriteLine($"Running {benchmark.Name} warmup...");
+
+				benchmark.Run(iterations);
+
+				Console.WriteLine($"Running {benchmark.Name}...");
+
+				benchmark.Run(iterations);
+			}
+			finally
+			{
+				benchmark.Dispose();
+			}
         }
 
-        public Benchmarkz()
-        {
-        }
-
-        [GlobalSetup]
-        public void Startup()
-        {
-        }
-
-        [Benchmark]
-        public unsafe void SequentialFillFixed()
-        {
-            for (int i = 0; i < _allocator.Suballocator.LengthTotal; i++)
-            {
-                _allocator.Suballocator.Rent(1);
-            }
-        }
-
-        [Benchmark]
-        public unsafe void SequentialFillReturnFixed()
-        {
-            List<UnmanagedMemorySegment<int>> segments = new List<UnmanagedMemorySegment<int>>((int)_allocator.Suballocator.LengthTotal);
-
-            for (int i = 0; i < _allocator.Suballocator.LengthTotal; i++)
-            {
-                segments.Add(_allocator.Suballocator.Rent(1));
-            }
-
-            foreach (var segment in segments)
-            {
-                _allocator.Suballocator.Return(segment);
-            }
-        }
-        
-        [IterationCleanup]
-        public void Cleanup()
-        {
-            _allocator.Suballocator.Clear();
-        }
-
-        [GlobalCleanup]
-        public void Cleanup2()
-        {
-            _allocator.Suballocator.Dispose();
-        }
     }
 
     /*
@@ -215,33 +162,4 @@ public class Program
 			allocator.Return(ptr4);
 		}
 	}*/
-
-    public class GenericColumn : IColumn
-    {
-        private readonly Func<BenchmarkCase, string> getTag;
-
-        public string Id { get; }
-        public string ColumnName { get; }
-
-        public GenericColumn(string columnName, Func<BenchmarkCase, string> getTag)
-        {
-            this.getTag = getTag;
-            ColumnName = columnName;
-            Id = "a" + nameof(GenericColumn) + "." + ColumnName;
-        }
-
-        public bool IsDefault(Summary summary, BenchmarkCase benchmarkCase) => false;
-        public string GetValue(Summary summary, BenchmarkCase benchmarkCase) =>
-            getTag(benchmarkCase);
-
-        public bool IsAvailable(Summary summary) => true;
-        public bool AlwaysShow => true;
-        public ColumnCategory Category => ColumnCategory.Statistics; //
-        public int PriorityInCategory => 0;
-        public bool IsNumeric => false;
-        public UnitType UnitType => UnitType.Dimensionless;
-        public string Legend => $"Custom '{ColumnName}' tag column";
-        public string GetValue(Summary summary, BenchmarkCase benchmarkCase, SummaryStyle style) => GetValue(summary, benchmarkCase);
-        public override string ToString() => ColumnName;
-    }
 }

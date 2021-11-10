@@ -95,7 +95,7 @@ namespace Suballocation
 
         private unsafe (long Index, long Length) Alloc(long length)
         {
-            if (LengthUsed + length >= LengthTotal)
+            if (LengthUsed + length > LengthTotal)
             {
                 throw new OutOfMemoryException();
             }
@@ -112,7 +112,7 @@ namespace Suballocation
 
         private unsafe void Free(long index, long length)
         {
-            if (_indexes.TryPop(out var topEntry) == false)
+            if (_indexes.TryPeek(out var topEntry) == false)
             {
                 throw new ArgumentException($"No rented segments found.");
             }

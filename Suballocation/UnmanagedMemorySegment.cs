@@ -7,7 +7,7 @@ using System.Runtime.InteropServices;
 
 namespace Suballocation
 {
-    [DebuggerDisplay("[0x{(ulong)_ptr}] Length: {_length:N0}, Size: {Size:N0}, Value: {this[0]}")]
+    [DebuggerDisplay("[0x{(ulong)_ptr}] Length: {_length}, Size: {Size}, Value: {this[0]}")]
     [StructLayout(LayoutKind.Sequential)]
     public unsafe readonly record struct UnmanagedMemorySegment<T> : ISegment<T> where T : unmanaged
     {
