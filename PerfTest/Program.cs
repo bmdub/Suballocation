@@ -16,9 +16,9 @@ public partial class Program
 
     static void Main(string[] args)
     {
-		long length = 1 << 20;
+		long length = 1l << 12;
 
-		Test<SomeStruct>(1, length, (int)(length / 10000));
+		Test<SomeStruct>(100, length, (int)(length / 100000));
 
         Console.ReadKey();
     }
@@ -29,46 +29,33 @@ public partial class Program
 		{
 			new SequentialFillFixedBenchmark<T>(new FixedStackSuballocator<T>(length, 1)).Run(iterations),
 			new SequentialFillFixedBenchmark<T>(new StackSuballocator<T>(length)).Run(iterations),
+			new SequentialFillFixedBenchmark<T>(new SequentialFitSuballocator<T>(length)).Run(iterations),
 			new SequentialFillFixedBenchmark<T>(new SweepingSuballocator<T>(length, 1)).Run(iterations),
 			new SequentialFillFixedBenchmark<T>(new BuddyAllocator<T>(length, 1)).Run(iterations),
+			//new SequentialFillFixedBenchmark<T>(new ArrayPoolSuballocator<T>(length)).Run(iterations),
+			//new SequentialFillFixedBenchmark<T>(new MemoryPoolSuballocator<T>(length)).Run(iterations),
 
 			new SequentialFillReturnFixedBenchmark<T>(new FixedStackSuballocator<T>(length, 1)).Run(iterations),
 			new SequentialFillReturnFixedBenchmark<T>(new StackSuballocator<T>(length)).Run(iterations),
+			new SequentialFillReturnFixedBenchmark<T>(new SequentialFitSuballocator<T>(length)).Run(iterations),
 			new SequentialFillReturnFixedBenchmark<T>(new SweepingSuballocator<T>(length, 1)).Run(iterations),
 			new SequentialFillReturnFixedBenchmark<T>(new BuddyAllocator<T>(length, 1)).Run(iterations),
+			//new SequentialFillReturnFixedBenchmark<T>(new ArrayPoolSuballocator<T>(length)).Run(iterations),
+			//new SequentialFillReturnFixedBenchmark<T>(new MemoryPoolSuballocator<T>(length)).Run(iterations),
 
 			new SequentialFillVariableBenchmark<T>(new FixedStackSuballocator<T>(length, 1), 0, maxSegLen).Run(iterations),
 			new SequentialFillVariableBenchmark<T>(new StackSuballocator<T>(length), 0, maxSegLen).Run(iterations),
+			new SequentialFillVariableBenchmark<T>(new SequentialFitSuballocator<T>(length), 0, maxSegLen).Run(iterations),
 			new SequentialFillVariableBenchmark<T>(new SweepingSuballocator<T>(length, 1), 0, maxSegLen).Run(iterations),
 			new SequentialFillVariableBenchmark<T>(new BuddyAllocator<T>(length, 1), 0, maxSegLen).Run(iterations),
+			//new SequentialFillVariableBenchmark<T>(new ArrayPoolSuballocator<T>(length), 0, maxSegLen).Run(iterations),
+			//new SequentialFillVariableBenchmark<T>(new MemoryPoolSuballocator<T>(length), 0, maxSegLen).Run(iterations),
 		};
 
 		results.GroupBy(result => result.GetValue("Allocator")).WriteToConsole();
 
 		results.WriteToGroupedBarGraph();
 	}
-
-    static void RunBenmarksFor(int iterations, params BenchmarkBase[] benchmarks)
-    {
-        foreach (var benchmark in benchmarks)
-        {
-			try
-			{
-				Console.WriteLine($"Running {benchmark.Name} warmup...");
-
-				benchmark.Run(iterations);
-
-				Console.WriteLine($"Running {benchmark.Name}...");
-
-				benchmark.Run(iterations);
-			}
-			finally
-			{
-				benchmark.Dispose();
-			}
-        }
-
-    }
 
     /*
 	unsafe void Test3()

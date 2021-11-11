@@ -25,7 +25,7 @@ namespace PerfTest
 
         public unsafe override void RunIteration()
         {
-            List<UnmanagedMemorySegment<T>> segments = new List<UnmanagedMemorySegment<T>>((int)_suballocator.LengthTotal);
+            List<NativeMemorySegment<T>> segments = new List<NativeMemorySegment<T>>((int)_suballocator.LengthTotal);
 
             for (int i = 0; i < _suballocator.LengthTotal; i++)
             {

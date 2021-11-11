@@ -12,7 +12,7 @@ unsafe void Test3()
 	try
 	{
 		Random random = new Random(1);
-		Queue<UnmanagedMemorySegment<int>> ptrs = new Queue<UnmanagedMemorySegment<int>>();
+		Queue<NativeMemorySegment<int>> ptrs = new Queue<NativeMemorySegment<int>>();
 		for (ulong i = 0; ; i++)
 		{
 			var len = random.Next(3) == 0 ? 2048 : 800L;

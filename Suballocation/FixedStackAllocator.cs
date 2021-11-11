@@ -56,36 +56,36 @@ namespace Suballocation
 
         public T* PElems => _pElems;
 
-        public UnmanagedMemorySegmentResource<T> RentResource(long length = 1)
+        public NativeMemorySegmentResource<T> RentResource(long length = 1)
         {
-            if (_disposed) throw new ObjectDisposedException(nameof(SweepingSuballocator<T>));
+            if (_disposed) throw new ObjectDisposedException(nameof(FixedStackSuballocator<T>));
             if (length != _segmentLength) throw new ArgumentOutOfRangeException(nameof(length), $"Segment length must be user-defined length ({_segmentLength}).");
 
             var rawSegment = Alloc(_segmentLength);
 
-            return new UnmanagedMemorySegmentResource<T>(this, _pElems + rawSegment.Index, rawSegment.Length);
+            return new NativeMemorySegmentResource<T>(this, _pElems + rawSegment.Index, rawSegment.Length);
         }
 
-        public void ReturnResource(UnmanagedMemorySegmentResource<T> segment)
+        public void ReturnResource(NativeMemorySegmentResource<T> segment)
         {
-            if (_disposed) throw new ObjectDisposedException(nameof(SweepingSuballocator<T>));
+            if (_disposed) throw new ObjectDisposedException(nameof(FixedStackSuballocator<T>));
 
             Free(segment.PElems - _pElems, segment.Length);
         }
 
-        public UnmanagedMemorySegment<T> Rent(long length = 1)
+        public NativeMemorySegment<T> Rent(long length = 1)
         {
-            if (_disposed) throw new ObjectDisposedException(nameof(SweepingSuballocator<T>));
+            if (_disposed) throw new ObjectDisposedException(nameof(FixedStackSuballocator<T>));
             if (length != _segmentLength) throw new ArgumentOutOfRangeException(nameof(length), $"Segment length must be user-defined length ({_segmentLength}).");
 
             var rawSegment = Alloc(_segmentLength);
 
-            return new UnmanagedMemorySegment<T>(_pElems + rawSegment.Index, rawSegment.Length);
+            return new NativeMemorySegment<T>(_pElems + rawSegment.Index, rawSegment.Length);
         }
 
-        public void Return(UnmanagedMemorySegment<T> segment)
+        public void Return(NativeMemorySegment<T> segment)
         {
-            if (_disposed) throw new ObjectDisposedException(nameof(SweepingSuballocator<T>));
+            if (_disposed) throw new ObjectDisposedException(nameof(FixedStackSuballocator<T>));
 
             Free(segment.PElems - _pElems, segment.Length);
         }

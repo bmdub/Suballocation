@@ -8,17 +8,21 @@ using System.Runtime.InteropServices;
 namespace Suballocation
 {
     [DebuggerDisplay("[0x{(ulong)_ptr}] Length: {_length}, Size: {Size}, Value: {this[0]}")]
-    [StructLayout(LayoutKind.Sequential)]
-    public unsafe readonly record struct UnmanagedMemorySegment<T> : ISegment<T> where T : unmanaged
+    public unsafe readonly record struct NativeMemorySegmentResource<T> : ISegmentResource, ISegment<T> where T : unmanaged
     {
+        private readonly ISuballocator<T> _memoryPool;
         private readonly IntPtr _ptr;
         private readonly long _length;
 
-        public unsafe UnmanagedMemorySegment(T* ptr, long length)
+        public unsafe NativeMemorySegmentResource(ISuballocator<T> memoryPool, T* ptr, long length)
         {
+            _memoryPool = memoryPool;
             _ptr = (IntPtr)ptr;
             _length = length;
         }
+
+        public ISuballocator<T> MemoryPool { get => _memoryPool; init => _memoryPool = value; }
+        ISuballocator ISegmentResource.MemoryPool { get => MemoryPool; }
 
         public unsafe void* PBytes { get => (void*)_ptr; init => _ptr = (IntPtr)value; }
 
@@ -44,7 +48,7 @@ namespace Suballocation
 
         public IEnumerator<T> GetEnumerator()
         {
-            for(long i=0; i<_length; i++)
+            for (long i = 0; i < _length; i++)
             {
                 yield return this[i];
             }
@@ -52,5 +56,10 @@ namespace Suballocation
 
         IEnumerator IEnumerable.GetEnumerator() =>
             GetEnumerator();
+
+        public void Dispose()
+        {
+            _memoryPool.ReturnResource(this);
+        }
     }
 }

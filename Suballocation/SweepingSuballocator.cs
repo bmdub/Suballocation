@@ -24,27 +24,35 @@ using System.Runtime.InteropServices;
 // consider segment updates, which will affect the update window. combine with compaction?
 // will starting capacities make better efficiency?
 
-// Ring buffer
-// .net GC
-// reversible sequential fit / below
-// arraypool / memorypool
+// Generational
+// ..... 888 55 3 2 1 0 1 2 3 55 888 .....
+// ........ 555 22 0 1 33 88888
+
+// buddy system
+// use heap for free list, 1 for each size and side.  pop and push as needed to get nearest for given size.
+// still could be quite far away... maybe do that operation for all sizes higher that are not empty, then decide.
+// need custom heap
 
 // update window(s).  need segment graph to merge? best to merge on demand. just return list.
 
 
 // tests
 // varying buffer sizes
-// varying block sizes
 // varying allocation sizes
 // different fixed levels of allocation sizes
-// update windows / locality of rentals
 // random free/rent for fixed level allocations
 // random free/rent for varying alloc sizes
-// avg free space when "filled" w/o compaction
+// varying block sizes (for varying alloc tests)
+// compaction vs without
 // overprovisioning needed
-// compaction rate (stat not test)
-// 
 
+// stats
+// failed with OOO count
+// compaction rate
+// update windows / locality of rentals
+// free space when OOO
+// amt data compacted
+// other mem usage
 
 // movement strategy objects
 // given stats on: side with largest free segment, side with most free sum, head dist from center, 
@@ -64,6 +72,7 @@ using System.Runtime.InteropServices;
 
 namespace Suballocation
 {
+    // reversible sequential fit?
     public unsafe sealed class SweepingSuballocator<T> : ISuballocator<T>, IDisposable where T : unmanaged
     {
         public readonly long BlockLength;
@@ -83,7 +92,7 @@ namespace Suballocation
             if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot allocate a backing buffer of size <= 0.");
             if (blockLength <= 0) throw new ArgumentOutOfRangeException(nameof(blockLength), $"Cannot use a block length of <= 0.");
             if (blockLength > length) throw new ArgumentOutOfRangeException(nameof(blockLength), $"Cannot use a block length that's larger than {nameof(length)}.");
-
+            
             LengthTotal = length;
             BlockLength = blockLength;
             _blockCount = length / blockLength;
@@ -143,34 +152,34 @@ namespace Suballocation
 
         public T* PElems => _pElems;
 
-        public UnmanagedMemorySegmentResource<T> RentResource(long length = 1)
+        public NativeMemorySegmentResource<T> RentResource(long length = 1)
         {
             if (_disposed) throw new ObjectDisposedException(nameof(SweepingSuballocator<T>));
             if (length == 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot rent a segment of size 0.");
 
             var rawSegment = Alloc(length);
 
-            return new UnmanagedMemorySegmentResource<T>(this, _pElems + rawSegment.Index, rawSegment.Length);
+            return new NativeMemorySegmentResource<T>(this, _pElems + rawSegment.Index, rawSegment.Length);
         }
 
-        public void ReturnResource(UnmanagedMemorySegmentResource<T> segment)
+        public void ReturnResource(NativeMemorySegmentResource<T> segment)
         {
             if (_disposed) throw new ObjectDisposedException(nameof(SweepingSuballocator<T>));
 
             Free(segment.PElems - _pElems, segment.Length);
         }
 
-        public UnmanagedMemorySegment<T> Rent(long length = 1)
+        public NativeMemorySegment<T> Rent(long length = 1)
         {
             if (_disposed) throw new ObjectDisposedException(nameof(SweepingSuballocator<T>));
             if (length == 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot rent a segment of size 0.");
 
             var rawSegment = Alloc(length);
 
-            return new UnmanagedMemorySegment<T>(_pElems + rawSegment.Index, rawSegment.Length);
+            return new NativeMemorySegment<T>(_pElems + rawSegment.Index, rawSegment.Length);
         }
 
-        public void Return(UnmanagedMemorySegment<T> segment)
+        public void Return(NativeMemorySegment<T> segment)
         {
             if (_disposed) throw new ObjectDisposedException(nameof(SweepingSuballocator<T>));
 

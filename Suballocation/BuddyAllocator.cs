@@ -160,34 +160,34 @@ namespace Suballocation
 
 
 
-		public UnmanagedMemorySegmentResource<T> RentResource(long length = 1)
+		public NativeMemorySegmentResource<T> RentResource(long length = 1)
 		{
 			if (_disposed) throw new ObjectDisposedException(nameof(SweepingSuballocator<T>));
 			if (length == 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot rent a segment of size 0.");
 
 			var rawSegment = Alloc(length);
 
-			return new UnmanagedMemorySegmentResource<T>(this, _pElems + rawSegment.Index * MinBlockLength, rawSegment.Length);
+			return new NativeMemorySegmentResource<T>(this, _pElems + rawSegment.Index * MinBlockLength, rawSegment.Length);
 		}
 
-		public void ReturnResource(UnmanagedMemorySegmentResource<T> segment)
+		public void ReturnResource(NativeMemorySegmentResource<T> segment)
 		{
 			if (_disposed) throw new ObjectDisposedException(nameof(SweepingSuballocator<T>));
 
 			Free(segment.PElems - _pElems, segment.Length);
 		}
 
-		public UnmanagedMemorySegment<T> Rent(long length = 1)
+		public NativeMemorySegment<T> Rent(long length = 1)
 		{
 			if (_disposed) throw new ObjectDisposedException(nameof(SweepingSuballocator<T>));
 			if (length == 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot rent a segment of size 0.");
 
 			var rawSegment = Alloc(length);
 
-			return new UnmanagedMemorySegment<T>(_pElems + rawSegment.Index * MinBlockLength, rawSegment.Length);
+			return new NativeMemorySegment<T>(_pElems + rawSegment.Index * MinBlockLength, rawSegment.Length);
 		}
 
-		public void Return(UnmanagedMemorySegment<T> segment)
+		public void Return(NativeMemorySegment<T> segment)
 		{
 			if (_disposed) throw new ObjectDisposedException(nameof(SweepingSuballocator<T>));
 

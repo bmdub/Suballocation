@@ -64,43 +64,43 @@ namespace Suballocation
 
         public T* PElems => _pElems;
 
-        public UnmanagedMemorySegmentResource<T> RentResource(long length = 1)
+        public NativeMemorySegmentResource<T> RentResource(long length = 1)
         {
-            if (_disposed) throw new ObjectDisposedException(nameof(SweepingSuballocator<T>));
+            if (_disposed) throw new ObjectDisposedException(nameof(SequentialFitSuballocator<T>));
             if (length == 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot rent a segment of size 0.");
 
             var rawSegment = Alloc(length);
 
-            return new UnmanagedMemorySegmentResource<T>(this, _pElems + rawSegment.Index, rawSegment.Length);
+            return new NativeMemorySegmentResource<T>(this, _pElems + rawSegment.Index, rawSegment.Length);
         }
 
-        public void ReturnResource(UnmanagedMemorySegmentResource<T> segment)
+        public void ReturnResource(NativeMemorySegmentResource<T> segment)
         {
-            if (_disposed) throw new ObjectDisposedException(nameof(SweepingSuballocator<T>));
+            if (_disposed) throw new ObjectDisposedException(nameof(SequentialFitSuballocator<T>));
 
             Free(segment.PElems - _pElems, segment.Length);
         }
 
-        public UnmanagedMemorySegment<T> Rent(long length = 1)
+        public NativeMemorySegment<T> Rent(long length = 1)
         {
-            if (_disposed) throw new ObjectDisposedException(nameof(SweepingSuballocator<T>));
+            if (_disposed) throw new ObjectDisposedException(nameof(SequentialFitSuballocator<T>));
             if (length == 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot rent a segment of size 0.");
 
             var rawSegment = Alloc(length);
 
-            return new UnmanagedMemorySegment<T>(_pElems + rawSegment.Index, rawSegment.Length);
+            return new NativeMemorySegment<T>(_pElems + rawSegment.Index, rawSegment.Length);
         }
 
-        public void Return(UnmanagedMemorySegment<T> segment)
+        public void Return(NativeMemorySegment<T> segment)
         {
-            if (_disposed) throw new ObjectDisposedException(nameof(SweepingSuballocator<T>));
+            if (_disposed) throw new ObjectDisposedException(nameof(SequentialFitSuballocator<T>));
 
             Free(segment.PElems - _pElems, segment.Length);
         }
 
         private unsafe (long Index, long Length) Alloc(long length)
         {
-            if (LengthUsed + length >= LengthTotal)
+            if (LengthUsed + length > LengthTotal)
             {
                 throw new OutOfMemoryException();
             }
@@ -122,33 +122,47 @@ namespace Suballocation
                     }
                 }
 
-                Debug.Assert(_indexQueue.Length > 0);
-
-                var indexEntry = _indexQueue.Dequeue();
-
-                while(_indexQueue.TryPeek(out var nextIndexEntry) && nextIndexEntry.Index == indexEntry.Index + indexEntry.Length)
+                while (_indexQueue.Length > 0)
                 {
-                    _indexQueue.Dequeue();
+                    var indexEntry = _indexQueue.Dequeue();
 
-                    indexEntry = indexEntry with { Length = indexEntry.Length + nextIndexEntry.Length };
-                }
-
-                if(indexEntry.Length >= length)
-                {
-                    if (indexEntry.Length > length)
+                    if(_allocatedIndexes[indexEntry.Index] == true)
                     {
-                        var leftoverEntry = new IndexEntry() { Index = indexEntry.Index + length, Length = indexEntry.Length - length };
-
-                        _indexQueue.EnqueueHead(leftoverEntry);
+                        _futureQueue.EnqueueHead(indexEntry);
+                        continue;
                     }
 
-                    _futureQueue.EnqueueHead(indexEntry);
-                    _allocatedIndexes[indexEntry.Index] = true;
+                    while (_indexQueue.TryPeek(out var nextIndexEntry) && 
+                        nextIndexEntry.Index == indexEntry.Index + indexEntry.Length &&
+                        _allocatedIndexes[nextIndexEntry.Index] == false)
+                    {
+                        _indexQueue.Dequeue();
 
-                    Allocations++;
-                    LengthUsed += length;
+                        indexEntry = indexEntry with { Length = indexEntry.Length + nextIndexEntry.Length };
+                    }
 
-                    return new(indexEntry.Index, indexEntry.Length);
+                    if (indexEntry.Length >= length)
+                    {
+                        if (indexEntry.Length > length)
+                        {
+                            var leftoverEntry = new IndexEntry() { Index = indexEntry.Index + length, Length = indexEntry.Length - length };
+                            indexEntry = indexEntry with { Length = length };
+
+                            _indexQueue.EnqueueHead(leftoverEntry);
+                        }
+
+                        _futureQueue.EnqueueHead(indexEntry);
+                        _allocatedIndexes[indexEntry.Index] = true;
+
+                        Allocations++;
+                        LengthUsed += length;
+
+                        return new(indexEntry.Index, indexEntry.Length);
+                    }
+                    else
+                    {
+                        _futureQueue.EnqueueHead(indexEntry);
+                    }
                 }
             }
         }

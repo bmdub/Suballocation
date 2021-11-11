@@ -14,10 +14,10 @@ namespace Suballocation
         public long LengthUsed { get; }
         public long LengthTotal { get; }
         public T* PElems { get; }
-        public UnmanagedMemorySegment<T> Rent(long length = 1);
-        public void Return(UnmanagedMemorySegment<T> segment);
-        public UnmanagedMemorySegmentResource<T> RentResource(long length = 1);
-        public void ReturnResource(UnmanagedMemorySegmentResource<T> segment);
+        public NativeMemorySegment<T> Rent(long length = 1);
+        public void Return(NativeMemorySegment<T> segment);
+        public NativeMemorySegmentResource<T> RentResource(long length = 1);
+        public void ReturnResource(NativeMemorySegmentResource<T> segment);
         public void Clear();
     }
 }
