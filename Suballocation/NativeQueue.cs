@@ -37,7 +37,7 @@ namespace Suballocation
 
             _pElems[_tail] = elem;
             _length++;
-            _tail = (_tail - 1) % _bufferLength;
+            _tail = ModuloPositive(_tail - 1, _bufferLength);
         }
 
         public void EnqueueHead(T elem)
@@ -50,6 +50,13 @@ namespace Suballocation
             _head = (_head + 1) % _bufferLength;
             _pElems[_head] = elem;
             _length++;
+        }
+
+        private long ModuloPositive(long x, long m)
+        {
+            // Systems or languages may define modulo differently; we want negative x's to wrap around to positive.
+            long r = x % m;
+            return r < 0 ? r + m : r; 
         }
 
         private void IncreaseSize()

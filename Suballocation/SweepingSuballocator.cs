@@ -25,8 +25,6 @@ using System.Runtime.InteropServices;
 // will starting capacities make better efficiency?
 
 // Generational
-// ..... 888 55 3 2 1 0 1 2 3 55 888 .....
-// ........ 555 22 0 1 33 88888
 
 // buddy system
 // use heap for free list, 1 for each size and side.  pop and push as needed to get nearest for given size.
