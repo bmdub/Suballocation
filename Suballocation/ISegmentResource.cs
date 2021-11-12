@@ -1,9 +1,7 @@
-﻿using System;
+﻿
+namespace Suballocation;
 
-namespace Suballocation
+public interface ISegmentResource : IDisposable
 {
-    public interface ISegmentResource : IDisposable
-    {
-        ISuballocator MemoryPool { get; }
-    }
+    ISuballocator MemoryPool { get; }
 }

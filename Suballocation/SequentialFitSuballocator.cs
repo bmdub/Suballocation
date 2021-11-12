@@ -1,235 +1,234 @@
-﻿using System.Buffers;
-using System.Diagnostics;
+﻿using Suballocation.Collections;
+using System.Buffers;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
-namespace Suballocation
+namespace Suballocation;
+
+public unsafe sealed class SequentialFitSuballocator<T> : ISuballocator<T>, IDisposable where T : unmanaged
 {
-    public unsafe sealed class SequentialFitSuballocator<T> : ISuballocator<T>, IDisposable where T : unmanaged
+    private readonly T* _pElems;
+    private readonly MemoryHandle _memoryHandle;
+    private readonly bool _privatelyOwned;
+    private readonly NativeBitArray _allocatedIndexes;
+    private NativeQueue<IndexEntry> _indexQueue = new();
+    private NativeQueue<IndexEntry> _futureQueue = new();
+    private bool _disposed;
+
+    public SequentialFitSuballocator(long length)
     {
-        private readonly T* _pElems;
-        private readonly MemoryHandle _memoryHandle;
-        private readonly bool _privatelyOwned;
-        private readonly NativeBitArray _allocatedIndexes;
-        private NativeQueue<IndexEntry> _indexQueue = new();
-        private NativeQueue<IndexEntry> _futureQueue = new();
-        private bool _disposed;
+        if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot allocate a backing buffer of size <= 0.");
 
-        public SequentialFitSuballocator(long length)
+        LengthTotal = length;
+        _allocatedIndexes = new NativeBitArray(length);
+
+        _pElems = (T*)NativeMemory.Alloc((nuint)length, (nuint)Unsafe.SizeOf<T>());
+        _privatelyOwned = true;
+
+        _indexQueue.Enqueue(new IndexEntry() { Index = 0, Length = length });
+    }
+
+    public SequentialFitSuballocator(T* pData, long length)
+    {
+        if (pData == null) throw new ArgumentNullException(nameof(pData));
+        if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot allocate a backing buffer of size <= 0.");
+
+        LengthTotal = length;
+        _allocatedIndexes = new NativeBitArray(length);
+
+        _pElems = pData;
+
+        _indexQueue.Enqueue(new IndexEntry() { Index = 0, Length = length });
+    }
+
+    public SequentialFitSuballocator(Memory<T> data)
+    {
+        LengthTotal = data.Length;
+        _allocatedIndexes = new NativeBitArray(data.Length);
+
+        _memoryHandle = data.Pin();
+        _pElems = (T*)_memoryHandle.Pointer;
+
+        _indexQueue.Enqueue(new IndexEntry() { Index = 0, Length = data.Length });
+    }
+
+    public long SizeUsed => LengthUsed * Unsafe.SizeOf<T>();
+
+    public long SizeTotal => LengthTotal * Unsafe.SizeOf<T>();
+
+    public long Allocations { get; private set; }
+
+    public long LengthUsed { get; private set; }
+
+    public long LengthTotal { get; init; }
+
+    public T* PElems => _pElems;
+
+    public NativeMemorySegmentResource<T> RentResource(long length = 1)
+    {
+        if (_disposed) throw new ObjectDisposedException(nameof(SequentialFitSuballocator<T>));
+        if (length == 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot rent a segment of size 0.");
+
+        var rawSegment = Alloc(length);
+
+        return new NativeMemorySegmentResource<T>(this, _pElems + rawSegment.Index, rawSegment.Length);
+    }
+
+    public void ReturnResource(NativeMemorySegmentResource<T> segment)
+    {
+        if (_disposed) throw new ObjectDisposedException(nameof(SequentialFitSuballocator<T>));
+
+        Free(segment.PElems - _pElems, segment.Length);
+    }
+
+    public NativeMemorySegment<T> Rent(long length = 1)
+    {
+        if (_disposed) throw new ObjectDisposedException(nameof(SequentialFitSuballocator<T>));
+        if (length == 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot rent a segment of size 0.");
+
+        var rawSegment = Alloc(length);
+
+        return new NativeMemorySegment<T>(_pElems + rawSegment.Index, rawSegment.Length);
+    }
+
+    public void Return(NativeMemorySegment<T> segment)
+    {
+        if (_disposed) throw new ObjectDisposedException(nameof(SequentialFitSuballocator<T>));
+
+        Free(segment.PElems - _pElems, segment.Length);
+    }
+
+    private unsafe (long Index, long Length) Alloc(long length)
+    {
+        if (LengthUsed + length > LengthTotal)
         {
-            if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot allocate a backing buffer of size <= 0.");
-
-            LengthTotal = length;
-            _allocatedIndexes = new NativeBitArray(length);
-
-            _pElems = (T*)NativeMemory.Alloc((nuint)length, (nuint)Unsafe.SizeOf<T>());
-            _privatelyOwned = true;
-
-            _indexQueue.Enqueue(new IndexEntry() { Index = 0, Length = length });
+            throw new OutOfMemoryException();
         }
 
-        public SequentialFitSuballocator(T* pData, long length)
+        int swaps = 0;
+
+        for (; ; )
         {
-            if (pData == null) throw new ArgumentNullException(nameof(pData));
-            if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot allocate a backing buffer of size <= 0.");
-
-            LengthTotal = length;
-            _allocatedIndexes = new NativeBitArray(length);
-
-            _pElems = pData;
-
-            _indexQueue.Enqueue(new IndexEntry() { Index = 0, Length = length });
-        }
-
-        public SequentialFitSuballocator(Memory<T> data)
-        {
-            LengthTotal = data.Length;
-            _allocatedIndexes = new NativeBitArray(data.Length);
-
-            _memoryHandle = data.Pin();
-            _pElems = (T*)_memoryHandle.Pointer;
-
-            _indexQueue.Enqueue(new IndexEntry() { Index = 0, Length = data.Length });
-        }
-
-        public long SizeUsed => LengthUsed * Unsafe.SizeOf<T>();
-
-        public long SizeTotal => LengthTotal * Unsafe.SizeOf<T>();
-
-        public long Allocations { get; private set; }
-
-        public long LengthUsed { get; private set; }
-
-        public long LengthTotal { get; init; }
-
-        public T* PElems => _pElems;
-
-        public NativeMemorySegmentResource<T> RentResource(long length = 1)
-        {
-            if (_disposed) throw new ObjectDisposedException(nameof(SequentialFitSuballocator<T>));
-            if (length == 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot rent a segment of size 0.");
-
-            var rawSegment = Alloc(length);
-
-            return new NativeMemorySegmentResource<T>(this, _pElems + rawSegment.Index, rawSegment.Length);
-        }
-
-        public void ReturnResource(NativeMemorySegmentResource<T> segment)
-        {
-            if (_disposed) throw new ObjectDisposedException(nameof(SequentialFitSuballocator<T>));
-
-            Free(segment.PElems - _pElems, segment.Length);
-        }
-
-        public NativeMemorySegment<T> Rent(long length = 1)
-        {
-            if (_disposed) throw new ObjectDisposedException(nameof(SequentialFitSuballocator<T>));
-            if (length == 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot rent a segment of size 0.");
-
-            var rawSegment = Alloc(length);
-
-            return new NativeMemorySegment<T>(_pElems + rawSegment.Index, rawSegment.Length);
-        }
-
-        public void Return(NativeMemorySegment<T> segment)
-        {
-            if (_disposed) throw new ObjectDisposedException(nameof(SequentialFitSuballocator<T>));
-
-            Free(segment.PElems - _pElems, segment.Length);
-        }
-
-        private unsafe (long Index, long Length) Alloc(long length)
-        {
-            if (LengthUsed + length > LengthTotal)
+            if (_indexQueue.Length == 0)
             {
-                throw new OutOfMemoryException();
+                var temp = _indexQueue;
+                _indexQueue = _futureQueue;
+                _futureQueue = _indexQueue;
+                swaps++;
+
+                if (swaps == 2)
+                {
+                    throw new OutOfMemoryException();
+                }
             }
 
-            int swaps = 0;
-
-            for (; ; )
+            while (_indexQueue.Length > 0)
             {
-                if (_indexQueue.Length == 0)
-                {
-                    var temp = _indexQueue;
-                    _indexQueue = _futureQueue;
-                    _futureQueue = _indexQueue;
-                    swaps++;
+                var indexEntry = _indexQueue.Dequeue();
 
-                    if(swaps == 2)
-                    {
-                        throw new OutOfMemoryException();
-                    }
+                if (_allocatedIndexes[indexEntry.Index] == true)
+                {
+                    _futureQueue.EnqueueHead(indexEntry);
+                    continue;
                 }
 
-                while (_indexQueue.Length > 0)
+                while (_indexQueue.TryPeek(out var nextIndexEntry) &&
+                    nextIndexEntry.Index == indexEntry.Index + indexEntry.Length &&
+                    _allocatedIndexes[nextIndexEntry.Index] == false)
                 {
-                    var indexEntry = _indexQueue.Dequeue();
+                    _indexQueue.Dequeue();
 
-                    if(_allocatedIndexes[indexEntry.Index] == true)
+                    indexEntry = indexEntry with { Length = indexEntry.Length + nextIndexEntry.Length };
+                }
+
+                if (indexEntry.Length >= length)
+                {
+                    if (indexEntry.Length > length)
                     {
-                        _futureQueue.EnqueueHead(indexEntry);
-                        continue;
+                        var leftoverEntry = new IndexEntry() { Index = indexEntry.Index + length, Length = indexEntry.Length - length };
+                        indexEntry = indexEntry with { Length = length };
+
+                        _indexQueue.EnqueueHead(leftoverEntry);
                     }
 
-                    while (_indexQueue.TryPeek(out var nextIndexEntry) && 
-                        nextIndexEntry.Index == indexEntry.Index + indexEntry.Length &&
-                        _allocatedIndexes[nextIndexEntry.Index] == false)
-                    {
-                        _indexQueue.Dequeue();
+                    _futureQueue.EnqueueHead(indexEntry);
+                    _allocatedIndexes[indexEntry.Index] = true;
 
-                        indexEntry = indexEntry with { Length = indexEntry.Length + nextIndexEntry.Length };
-                    }
+                    Allocations++;
+                    LengthUsed += length;
 
-                    if (indexEntry.Length >= length)
-                    {
-                        if (indexEntry.Length > length)
-                        {
-                            var leftoverEntry = new IndexEntry() { Index = indexEntry.Index + length, Length = indexEntry.Length - length };
-                            indexEntry = indexEntry with { Length = length };
-
-                            _indexQueue.EnqueueHead(leftoverEntry);
-                        }
-
-                        _futureQueue.EnqueueHead(indexEntry);
-                        _allocatedIndexes[indexEntry.Index] = true;
-
-                        Allocations++;
-                        LengthUsed += length;
-
-                        return new(indexEntry.Index, indexEntry.Length);
-                    }
-                    else
-                    {
-                        _futureQueue.EnqueueHead(indexEntry);
-                    }
+                    return new(indexEntry.Index, indexEntry.Length);
+                }
+                else
+                {
+                    _futureQueue.EnqueueHead(indexEntry);
                 }
             }
         }
+    }
 
-        private unsafe void Free(long index, long length)
+    private unsafe void Free(long index, long length)
+    {
+        if (_allocatedIndexes[index] == false)
         {
-            if (_allocatedIndexes[index] == false)
+            throw new ArgumentException($"No rented segment found at index {index}.");
+        }
+
+        _allocatedIndexes[index] = false;
+
+        Allocations--;
+        LengthUsed -= length;
+    }
+
+    public void Clear()
+    {
+        Allocations = 0;
+        LengthUsed = 0;
+        _indexQueue.Clear();
+        _futureQueue.Clear();
+        _allocatedIndexes.Clear();
+        _indexQueue.Enqueue(new IndexEntry() { Index = 0, Length = LengthTotal });
+    }
+
+    private void Dispose(bool disposing)
+    {
+        if (!_disposed)
+        {
+            if (disposing)
             {
-                throw new ArgumentException($"No rented segment found at index {index}.");
+                _indexQueue.Dispose();
+                _futureQueue.Dispose();
+                _allocatedIndexes.Dispose();
             }
 
-            _allocatedIndexes[index] = false;
+            _memoryHandle.Dispose();
 
-            Allocations--;
-            LengthUsed -= length;
-        }
-
-        public void Clear()
-        {
-            Allocations = 0;
-            LengthUsed = 0;
-            _indexQueue.Clear();
-            _futureQueue.Clear();
-            _allocatedIndexes.Clear();
-            _indexQueue.Enqueue(new IndexEntry() { Index = 0, Length = LengthTotal });
-        }
-
-        private void Dispose(bool disposing)
-        {
-            if (!_disposed)
+            if (_privatelyOwned)
             {
-                if (disposing)
-                {
-                    _indexQueue.Dispose();
-                    _futureQueue.Dispose();
-                    _allocatedIndexes.Dispose();
-                }
-
-                _memoryHandle.Dispose();
-
-                if (_privatelyOwned)
-                {
-                    NativeMemory.Free(_pElems);
-                }
-
-                _disposed = true;
+                NativeMemory.Free(_pElems);
             }
-        }
 
-        ~SequentialFitSuballocator()
-        {
-            Dispose(disposing: false);
+            _disposed = true;
         }
+    }
 
-        public void Dispose()
-        {
-            Dispose(disposing: true);
-            GC.SuppressFinalize(this);
-        }
+    ~SequentialFitSuballocator()
+    {
+        Dispose(disposing: false);
+    }
 
-        readonly struct IndexEntry
-        {
-            private readonly long _offset;
-            private readonly long _length;
+    public void Dispose()
+    {
+        Dispose(disposing: true);
+        GC.SuppressFinalize(this);
+    }
 
-            public long Index { get => _offset; init => _offset = value; }
-            public long Length { get => _length; init => _length = value; }
-        }
+    readonly struct IndexEntry
+    {
+        private readonly long _offset;
+        private readonly long _length;
+
+        public long Index { get => _offset; init => _offset = value; }
+        public long Length { get => _length; init => _length = value; }
     }
 }

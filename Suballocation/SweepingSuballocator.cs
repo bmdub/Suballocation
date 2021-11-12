@@ -1,10 +1,6 @@
 ﻿
-//#define TRACE_OUTPUT
-
-using System;
+using Suballocation.Collections;
 using System.Buffers;
-using System.Collections.Generic;
-using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
@@ -68,374 +64,361 @@ using System.Runtime.InteropServices;
 
 
 
-namespace Suballocation
+namespace Suballocation;
+
+// reversible sequential fit?
+public unsafe sealed class SweepingSuballocator<T> : ISuballocator<T>, IDisposable where T : unmanaged
 {
-    // reversible sequential fit?
-    public unsafe sealed class SweepingSuballocator<T> : ISuballocator<T>, IDisposable where T : unmanaged
+    public readonly long BlockLength;
+    private readonly T* _pElems;
+    private readonly MemoryHandle _memoryHandle;
+    private readonly bool _privatelyOwned;
+    private readonly long _blockCount;
+    private readonly NativeBitArray _allocatedIndexes;
+    private readonly NativeStack<IndexEntry> _prevIndexes = new();
+    private readonly NativeStack<IndexEntry> _nextIndexes = new();
+    private long _balance;
+    private long _head;
+    private bool _disposed;
+
+    public SweepingSuballocator(long length, long blockLength)
     {
-        public readonly long BlockLength;
-        private readonly T* _pElems;
-        private readonly MemoryHandle _memoryHandle;
-        private readonly bool _privatelyOwned;
-        private readonly long _blockCount;
-        private readonly NativeBitArray _allocatedIndexes;
-        private readonly NativeStack<IndexEntry> _prevIndexes = new();
-        private readonly NativeStack<IndexEntry> _nextIndexes = new();
-        private long _balance;
-        private long _head;
-        private bool _disposed;
+        if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot allocate a backing buffer of size <= 0.");
+        if (blockLength <= 0) throw new ArgumentOutOfRangeException(nameof(blockLength), $"Cannot use a block length of <= 0.");
+        if (blockLength > length) throw new ArgumentOutOfRangeException(nameof(blockLength), $"Cannot use a block length that's larger than {nameof(length)}.");
 
-        public SweepingSuballocator(long length, long blockLength)
-        {
-            if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot allocate a backing buffer of size <= 0.");
-            if (blockLength <= 0) throw new ArgumentOutOfRangeException(nameof(blockLength), $"Cannot use a block length of <= 0.");
-            if (blockLength > length) throw new ArgumentOutOfRangeException(nameof(blockLength), $"Cannot use a block length that's larger than {nameof(length)}.");
-            
-            LengthTotal = length;
-            BlockLength = blockLength;
-            _blockCount = length / blockLength;
-            _allocatedIndexes = new NativeBitArray(length);
+        LengthTotal = length;
+        BlockLength = blockLength;
+        _blockCount = length / blockLength;
+        _allocatedIndexes = new NativeBitArray(length);
 
-            _pElems = (T*)NativeMemory.Alloc((nuint)length, (nuint)Unsafe.SizeOf<T>());
-            _privatelyOwned = true;
+        _pElems = (T*)NativeMemory.Alloc((nuint)length, (nuint)Unsafe.SizeOf<T>());
+        _privatelyOwned = true;
 
-            _nextIndexes.Push(new IndexEntry() { Index = 0, Length = _blockCount * blockLength });
-            _balance = _nextIndexes.Peek().Length;
-        }
+        _nextIndexes.Push(new IndexEntry() { Index = 0, Length = _blockCount * blockLength });
+        _balance = _nextIndexes.Peek().Length;
+    }
 
-        public SweepingSuballocator(T* pData, long length, long blockLength)
-        {
-            if (pData == null) throw new ArgumentNullException(nameof(pData));
-            if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot allocate a backing buffer of size <= 0.");
-            if (blockLength <= 0) throw new ArgumentOutOfRangeException(nameof(blockLength), $"Cannot use a block length of <= 0.");
-            if (blockLength > length) throw new ArgumentOutOfRangeException(nameof(blockLength), $"Cannot use a block length that's larger than {nameof(length)}.");
+    public SweepingSuballocator(T* pData, long length, long blockLength)
+    {
+        if (pData == null) throw new ArgumentNullException(nameof(pData));
+        if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot allocate a backing buffer of size <= 0.");
+        if (blockLength <= 0) throw new ArgumentOutOfRangeException(nameof(blockLength), $"Cannot use a block length of <= 0.");
+        if (blockLength > length) throw new ArgumentOutOfRangeException(nameof(blockLength), $"Cannot use a block length that's larger than {nameof(length)}.");
 
-            LengthTotal = length;
-            BlockLength = blockLength;
-            _blockCount = length / blockLength;
-            _allocatedIndexes = new NativeBitArray(length);
+        LengthTotal = length;
+        BlockLength = blockLength;
+        _blockCount = length / blockLength;
+        _allocatedIndexes = new NativeBitArray(length);
 
-            _pElems = pData;
+        _pElems = pData;
 
-            _nextIndexes.Push(new IndexEntry() { Index = 0, Length = _blockCount * blockLength });
-            _balance = _nextIndexes.Peek().Length;
-        }
+        _nextIndexes.Push(new IndexEntry() { Index = 0, Length = _blockCount * blockLength });
+        _balance = _nextIndexes.Peek().Length;
+    }
 
-        public SweepingSuballocator(Memory<T> data, long blockLength)
-        {
-            if (blockLength <= 0) throw new ArgumentOutOfRangeException(nameof(blockLength), $"Cannot use a block length of <= 0.");
-            if (blockLength > data.Length) throw new ArgumentOutOfRangeException(nameof(blockLength), $"Cannot use a block length that's larger than {nameof(data.Length)}.");
+    public SweepingSuballocator(Memory<T> data, long blockLength)
+    {
+        if (blockLength <= 0) throw new ArgumentOutOfRangeException(nameof(blockLength), $"Cannot use a block length of <= 0.");
+        if (blockLength > data.Length) throw new ArgumentOutOfRangeException(nameof(blockLength), $"Cannot use a block length that's larger than {nameof(data.Length)}.");
 
-            LengthTotal = data.Length;
-            BlockLength = blockLength;
-            _blockCount = LengthTotal / blockLength;
-            _memoryHandle = data.Pin();
-            _allocatedIndexes = new NativeBitArray(data.Length);
+        LengthTotal = data.Length;
+        BlockLength = blockLength;
+        _blockCount = LengthTotal / blockLength;
+        _memoryHandle = data.Pin();
+        _allocatedIndexes = new NativeBitArray(data.Length);
 
-            _pElems = (T*)_memoryHandle.Pointer;
+        _pElems = (T*)_memoryHandle.Pointer;
 
-            _nextIndexes.Push(new IndexEntry() { Index = 0, Length = _blockCount * blockLength });
-            _balance = _nextIndexes.Peek().Length;
-        }
+        _nextIndexes.Push(new IndexEntry() { Index = 0, Length = _blockCount * blockLength });
+        _balance = _nextIndexes.Peek().Length;
+    }
 
-        public long SizeUsed => LengthUsed * Unsafe.SizeOf<T>();
+    public long SizeUsed => LengthUsed * Unsafe.SizeOf<T>();
 
-        public long SizeTotal => LengthTotal * Unsafe.SizeOf<T>();
+    public long SizeTotal => LengthTotal * Unsafe.SizeOf<T>();
 
-        public long Allocations { get; private set; }
+    public long Allocations { get; private set; }
 
-        public long LengthUsed { get; private set; }
+    public long LengthUsed { get; private set; }
 
-        public long LengthTotal { get; init; }
+    public long LengthTotal { get; init; }
 
-        public T* PElems => _pElems;
+    public T* PElems => _pElems;
 
-        public NativeMemorySegmentResource<T> RentResource(long length = 1)
-        {
-            if (_disposed) throw new ObjectDisposedException(nameof(SweepingSuballocator<T>));
-            if (length == 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot rent a segment of size 0.");
+    public NativeMemorySegmentResource<T> RentResource(long length = 1)
+    {
+        if (_disposed) throw new ObjectDisposedException(nameof(SweepingSuballocator<T>));
+        if (length == 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot rent a segment of size 0.");
 
-            var rawSegment = Alloc(length);
+        var rawSegment = Alloc(length);
 
-            return new NativeMemorySegmentResource<T>(this, _pElems + rawSegment.Index, rawSegment.Length);
-        }
+        return new NativeMemorySegmentResource<T>(this, _pElems + rawSegment.Index, rawSegment.Length);
+    }
 
-        public void ReturnResource(NativeMemorySegmentResource<T> segment)
-        {
-            if (_disposed) throw new ObjectDisposedException(nameof(SweepingSuballocator<T>));
+    public void ReturnResource(NativeMemorySegmentResource<T> segment)
+    {
+        if (_disposed) throw new ObjectDisposedException(nameof(SweepingSuballocator<T>));
 
-            Free(segment.PElems - _pElems, segment.Length);
-        }
+        Free(segment.PElems - _pElems, segment.Length);
+    }
 
-        public NativeMemorySegment<T> Rent(long length = 1)
-        {
-            if (_disposed) throw new ObjectDisposedException(nameof(SweepingSuballocator<T>));
-            if (length == 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot rent a segment of size 0.");
+    public NativeMemorySegment<T> Rent(long length = 1)
+    {
+        if (_disposed) throw new ObjectDisposedException(nameof(SweepingSuballocator<T>));
+        if (length == 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot rent a segment of size 0.");
 
-            var rawSegment = Alloc(length);
+        var rawSegment = Alloc(length);
 
-            return new NativeMemorySegment<T>(_pElems + rawSegment.Index, rawSegment.Length);
-        }
+        return new NativeMemorySegment<T>(_pElems + rawSegment.Index, rawSegment.Length);
+    }
 
-        public void Return(NativeMemorySegment<T> segment)
-        {
-            if (_disposed) throw new ObjectDisposedException(nameof(SweepingSuballocator<T>));
+    public void Return(NativeMemorySegment<T> segment)
+    {
+        if (_disposed) throw new ObjectDisposedException(nameof(SweepingSuballocator<T>));
 
-            Free(segment.PElems - _pElems, segment.Length);
-        }
+        Free(segment.PElems - _pElems, segment.Length);
+    }
 
-        private unsafe (long Index, long Length) Alloc(long length)
-        {
+    private unsafe (long Index, long Length) Alloc(long length)
+    {
 #if TRACE_OUTPUT
             Console.WriteLine($"Rent length desired: {length:N0}");
 #endif
 
-            long blockLength = (length / BlockLength) * BlockLength;
-            if (blockLength < length)
+        long blockLength = (length / BlockLength) * BlockLength;
+        if (blockLength < length)
+        {
+            blockLength += BlockLength;
+        }
+
+        while (_prevIndexes.TryPeek(out var previousEntryForMove) && previousEntryForMove.Index >= _head)
+        {
+            _nextIndexes.Push(_prevIndexes.Pop());
+
+            if (_allocatedIndexes[previousEntryForMove.Index] == false)
+                _balance += (long)previousEntryForMove.Length << 1;
+        }
+
+        while (_nextIndexes.TryPeek(out var nextEntryForMove) && nextEntryForMove.Index < _head)
+        {
+            _prevIndexes.Push(_nextIndexes.Pop());
+
+            if (_allocatedIndexes[nextEntryForMove.Index] == false)
+                _balance -= (long)nextEntryForMove.Length << 1;
+        }
+
+        for (; ; )
+        {
+            if (_prevIndexes.TryPop(out var previousEntry1) == false)
             {
-                blockLength += BlockLength;
+                break;
             }
 
-            while (_prevIndexes.TryPeek(out var previousEntryForMove) && previousEntryForMove.Index >= _head)
+            if (_prevIndexes.TryPeek(out var previousEntry2) == true
+                && _allocatedIndexes[previousEntry1.Index] == false
+                && _allocatedIndexes[previousEntry2.Index] == false
+                && previousEntry2.Index + previousEntry2.Length == previousEntry1.Index)
             {
-                _nextIndexes.Push(_prevIndexes.Pop());
-
-                if (_allocatedIndexes[previousEntryForMove.Index] == false)
-                    _balance += (long)previousEntryForMove.Length << 1;
-            }
-
-            while (_nextIndexes.TryPeek(out var nextEntryForMove) && nextEntryForMove.Index < _head)
-            {
-                _prevIndexes.Push(_nextIndexes.Pop());
-
-                if (_allocatedIndexes[nextEntryForMove.Index] == false)
-                    _balance -= (long)nextEntryForMove.Length << 1;
-            }
-
-            for (; ; )
-            {
-                if (_prevIndexes.TryPop(out var previousEntry1) == false)
-                {
-                    break;
-                }
-
-                if (_prevIndexes.TryPeek(out var previousEntry2) == true
-                    && _allocatedIndexes[previousEntry1.Index] == false
-                    && _allocatedIndexes[previousEntry2.Index] == false
-                    && previousEntry2.Index + previousEntry2.Length == previousEntry1.Index)
-                {
-                    _prevIndexes.Pop();
-                    _prevIndexes.Push(new IndexEntry() { Index = previousEntry2.Index, Length = previousEntry2.Length + previousEntry1.Length });
-                }
-                else
-                {
-                    _prevIndexes.Push(previousEntry1);
-                    break;
-                }
-            }
-
-            for (; ; )
-            {
-                if (_nextIndexes.TryPop(out var nextEntry1) == false)
-                {
-                    break;
-                }
-
-                if (_nextIndexes.TryPeek(out var nextEntry2) == true
-                    && _allocatedIndexes[nextEntry1.Index] == false
-                    && _allocatedIndexes[nextEntry2.Index] == false
-                    && nextEntry1.Index + nextEntry1.Length == nextEntry2.Index)
-                {
-                    _nextIndexes.Pop();
-                    _nextIndexes.Push(new IndexEntry() { Index = nextEntry1.Index, Length = nextEntry1.Length + nextEntry2.Length });
-                }
-                else
-                {
-                    _nextIndexes.Push(nextEntry1);
-                    break;
-                }
-            }
-
-            IndexEntry emptyEntry = default;
-            bool found = false;
-
-            void GetNext()
-            {
-                while (_nextIndexes.TryPop(out var nextEntry) == true)
-                {
-                    if (nextEntry.Length >= length && _allocatedIndexes[nextEntry.Index] == false)
-                    {
-                        found = true;
-                        emptyEntry = nextEntry;
-                        _balance -= (long)nextEntry.Length;
-                        break;
-                    }
-                    else
-                    {
-                        _prevIndexes.Push(nextEntry);
-
-                        if (_allocatedIndexes[nextEntry.Index] == false)
-                            _balance -= (long)nextEntry.Length << 1;
-                    }
-                }
-            }
-
-            void GetPrev()
-            {
-                while (_prevIndexes.TryPop(out var prevEntry) == true)
-                {
-                    if (prevEntry.Length >= length && _allocatedIndexes[prevEntry.Index] == false)
-                    {
-                        found = true;
-                        emptyEntry = prevEntry;
-                        _balance += (long)prevEntry.Length;
-                        break;
-                    }
-                    else
-                    {
-                        _nextIndexes.Push(prevEntry);
-
-                        if (_allocatedIndexes[prevEntry.Index] == false)
-                            _balance += (long)prevEntry.Length << 1;
-                    }
-                }
-            }
-
-            if (_balance >= 0)
-            {
-                GetNext();
-                if (found == false) GetPrev();
+                _prevIndexes.Pop();
+                _prevIndexes.Push(new IndexEntry() { Index = previousEntry2.Index, Length = previousEntry2.Length + previousEntry1.Length });
             }
             else
             {
-                GetPrev();
-                if (found == false) GetNext();
+                _prevIndexes.Push(previousEntry1);
+                break;
+            }
+        }
+
+        for (; ; )
+        {
+            if (_nextIndexes.TryPop(out var nextEntry1) == false)
+            {
+                break;
             }
 
-            if (found == false)
+            if (_nextIndexes.TryPeek(out var nextEntry2) == true
+                && _allocatedIndexes[nextEntry1.Index] == false
+                && _allocatedIndexes[nextEntry2.Index] == false
+                && nextEntry1.Index + nextEntry1.Length == nextEntry2.Index)
             {
-                throw new OutOfMemoryException();
+                _nextIndexes.Pop();
+                _nextIndexes.Push(new IndexEntry() { Index = nextEntry1.Index, Length = nextEntry1.Length + nextEntry2.Length });
             }
-
-            // Split out an empty entry if required size is less than the block given
-            long offset = emptyEntry.Index;
-            if (emptyEntry.Length > blockLength)
+            else
             {
-                if (emptyEntry.Index < _head)
+                _nextIndexes.Push(nextEntry1);
+                break;
+            }
+        }
+
+        IndexEntry emptyEntry = default;
+        bool found = false;
+
+        void GetNext()
+        {
+            while (_nextIndexes.TryPop(out var nextEntry) == true)
+            {
+                if (nextEntry.Length >= length && _allocatedIndexes[nextEntry.Index] == false)
                 {
-                    // Swap places with the new entry, to be closer to the current index
-                    _prevIndexes.Push(new IndexEntry() { Index = emptyEntry.Index, Length = emptyEntry.Length - blockLength });
-
-                    _balance -= (long)_prevIndexes.Peek().Length;
-
-                    offset = (emptyEntry.Index + emptyEntry.Length) - blockLength;
+                    found = true;
+                    emptyEntry = nextEntry;
+                    _balance -= (long)nextEntry.Length;
+                    break;
                 }
                 else
                 {
-                    _nextIndexes.Push(new IndexEntry() { Index = emptyEntry.Index + blockLength, Length = emptyEntry.Length - blockLength });
+                    _prevIndexes.Push(nextEntry);
 
-                    _balance += (long)_nextIndexes.Peek().Length;
+                    if (_allocatedIndexes[nextEntry.Index] == false)
+                        _balance -= (long)nextEntry.Length << 1;
                 }
-
-#if TRACE_OUTPUT
-                Console.WriteLine($"Splitting out block of length {emptyEntry.Length - blockLength}.");
-#endif
             }
+        }
 
+        void GetPrev()
+        {
+            while (_prevIndexes.TryPop(out var prevEntry) == true)
+            {
+                if (prevEntry.Length >= length && _allocatedIndexes[prevEntry.Index] == false)
+                {
+                    found = true;
+                    emptyEntry = prevEntry;
+                    _balance += (long)prevEntry.Length;
+                    break;
+                }
+                else
+                {
+                    _nextIndexes.Push(prevEntry);
+
+                    if (_allocatedIndexes[prevEntry.Index] == false)
+                        _balance += (long)prevEntry.Length << 1;
+                }
+            }
+        }
+
+        if (_balance >= 0)
+        {
+            GetNext();
+            if (found == false) GetPrev();
+        }
+        else
+        {
+            GetPrev();
+            if (found == false) GetNext();
+        }
+
+        if (found == false)
+        {
+            throw new OutOfMemoryException();
+        }
+
+        // Split out an empty entry if required size is less than the block given
+        long offset = emptyEntry.Index;
+        if (emptyEntry.Length > blockLength)
+        {
             if (emptyEntry.Index < _head)
             {
-                _prevIndexes.Push(new IndexEntry() { Index = offset, Length = blockLength });
+                // Swap places with the new entry, to be closer to the current index
+                _prevIndexes.Push(new IndexEntry() { Index = emptyEntry.Index, Length = emptyEntry.Length - blockLength });
+
+                _balance -= (long)_prevIndexes.Peek().Length;
+
+                offset = (emptyEntry.Index + emptyEntry.Length) - blockLength;
             }
             else
             {
-                _nextIndexes.Push(new IndexEntry() { Index = offset, Length = blockLength });
+                _nextIndexes.Push(new IndexEntry() { Index = emptyEntry.Index + blockLength, Length = emptyEntry.Length - blockLength });
+
+                _balance += (long)_nextIndexes.Peek().Length;
             }
-
-            _allocatedIndexes[offset] = true;
-
-#if TRACE_OUTPUT
-            Console.WriteLine($"Free block of count {blockLength} found at offset {offset}.");
-#endif
-
-            _head = offset + blockLength;
-
-            Allocations++;
-            LengthUsed += blockLength;
-
-            return new(offset, blockLength);
         }
 
-        private unsafe void Free(long offset, long length)
+        if (emptyEntry.Index < _head)
         {
-            if (_allocatedIndexes[offset] == false)
+            _prevIndexes.Push(new IndexEntry() { Index = offset, Length = blockLength });
+        }
+        else
+        {
+            _nextIndexes.Push(new IndexEntry() { Index = offset, Length = blockLength });
+        }
+
+        _allocatedIndexes[offset] = true;
+
+        _head = offset + blockLength;
+
+        Allocations++;
+        LengthUsed += blockLength;
+
+        return new(offset, blockLength);
+    }
+
+    private unsafe void Free(long offset, long length)
+    {
+        if (_allocatedIndexes[offset] == false)
+        {
+            throw new ArgumentException($"No rented segment at offset {offset} found.");
+        }
+
+        if (offset >= _head)
+            _balance += length;
+        else
+            _balance -= length;
+
+        Allocations--;
+        LengthUsed -= length;
+    }
+
+    public void Clear()
+    {
+        Allocations = 0;
+        LengthUsed = 0;
+        _nextIndexes.Clear();
+        _prevIndexes.Clear();
+        _allocatedIndexes.Clear();
+        _nextIndexes.Push(new IndexEntry() { Index = 0, Length = LengthTotal });
+        _balance = _nextIndexes.Peek().Length;
+    }
+
+    private void Dispose(bool disposing)
+    {
+        if (!_disposed)
+        {
+            if (disposing)
             {
-                throw new ArgumentException($"No rented segment at offset {offset} found.");
+                _nextIndexes.Dispose();
+                _prevIndexes.Dispose();
+                _allocatedIndexes.Dispose();
             }
 
-            if (offset >= _head)
-                _balance += length;
-            else
-                _balance -= length;
+            _memoryHandle.Dispose(); //todo: if default, what will happen?
 
-            Allocations--;
-            LengthUsed -= length;
-
-#if TRACE_OUTPUT
-            Console.WriteLine($"Returning block of length {length} at offset {offset}.");
-#endif
-        }
-
-        public void Clear()
-        {
-            Allocations = 0;
-            LengthUsed = 0;
-            _nextIndexes.Clear();
-            _prevIndexes.Clear();
-            _allocatedIndexes.Clear();
-            _nextIndexes.Push(new IndexEntry() { Index = 0, Length = LengthTotal });
-            _balance = _nextIndexes.Peek().Length;
-        }
-
-        private void Dispose(bool disposing)
-        {
-            if (!_disposed)
+            if (_privatelyOwned)
             {
-                if (disposing)
-                {
-                    _nextIndexes.Dispose();
-                    _prevIndexes.Dispose();
-                    _allocatedIndexes.Dispose();
-                }
-
-                _memoryHandle.Dispose(); //todo: if default, what will happen?
-
-                if (_privatelyOwned)
-                {
-                    NativeMemory.Free(_pElems);
-                }
-
-                _disposed = true;
+                NativeMemory.Free(_pElems);
             }
-        }
 
-        ~SweepingSuballocator()
-        {
-            Dispose(disposing: false);
+            _disposed = true;
         }
+    }
 
-        public void Dispose()
-        {
-            Dispose(disposing: true);
-            GC.SuppressFinalize(this);
-        }
+    ~SweepingSuballocator()
+    {
+        Dispose(disposing: false);
+    }
 
-        readonly struct IndexEntry
-        {
-            private readonly long _offset;
-            private readonly long _length;
+    public void Dispose()
+    {
+        Dispose(disposing: true);
+        GC.SuppressFinalize(this);
+    }
 
-            public long Index { get => _offset; init => _offset = value; }
-            public long Length { get => _length; init => _length = value; }
-        }
+    readonly struct IndexEntry
+    {
+        private readonly long _offset;
+        private readonly long _length;
+
+        public long Index { get => _offset; init => _offset = value; }
+        public long Length { get => _length; init => _length = value; }
     }
 }
