@@ -22,10 +22,6 @@ using System.Runtime.InteropServices;
 
 // Generational
 
-// buddy system
-// use heap for free list, 1 for each size and side.  pop and push as needed to get nearest for given size.
-// still could be quite far away... maybe do that operation for all sizes higher that are not empty, then decide.
-// need custom heap
 
 // update window(s).  need segment graph to merge? best to merge on demand. just return list.
 

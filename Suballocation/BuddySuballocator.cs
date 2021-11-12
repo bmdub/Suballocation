@@ -5,7 +5,7 @@ using System.Runtime.InteropServices;
 
 namespace Suballocation;
 
-public unsafe sealed class BuddyAllocator<T> : ISuballocator<T>, IDisposable where T : unmanaged
+public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T : unmanaged
 {
     public long MinBlockLength;
     private readonly MemoryHandle _memoryHandle;
@@ -18,7 +18,7 @@ public unsafe sealed class BuddyAllocator<T> : ISuballocator<T>, IDisposable whe
     private long[] _freeBlockIndexesStart = null!;
     private bool _disposed;
 
-    public BuddyAllocator(long length, long minBlockLength = 1)
+    public BuddySuballocator(long length, long minBlockLength = 1)
     {
         if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot allocate a backing buffer of size <= 0.");
         if (minBlockLength > length) throw new ArgumentOutOfRangeException(nameof(minBlockLength), $"Cannot have a block size that's larger than {nameof(length)}.");
@@ -31,7 +31,7 @@ public unsafe sealed class BuddyAllocator<T> : ISuballocator<T>, IDisposable whe
         Init(minBlockLength);
     }
 
-    public BuddyAllocator(T* pData, long length, long minBlockLength = 1)
+    public BuddySuballocator(T* pData, long length, long minBlockLength = 1)
     {
         if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot allocate a backing buffer of size <= 0.");
         if (minBlockLength > length) throw new ArgumentOutOfRangeException(nameof(minBlockLength), $"Cannot have a block size that's larger than {nameof(length)}.");
@@ -44,7 +44,7 @@ public unsafe sealed class BuddyAllocator<T> : ISuballocator<T>, IDisposable whe
         Init(minBlockLength);
     }
 
-    public BuddyAllocator(Memory<T> data, long minBlockLength = 1)
+    public BuddySuballocator(Memory<T> data, long minBlockLength = 1)
     {
         if (data.Length == 0) throw new ArgumentOutOfRangeException(nameof(data), $"Cannot allocate a backing buffer of size <= 0.");
         if (minBlockLength > (uint)data.Length) throw new ArgumentOutOfRangeException(nameof(minBlockLength), $"Cannot have a block size that's larger than {nameof(data.Length)}.");
@@ -103,7 +103,7 @@ public unsafe sealed class BuddyAllocator<T> : ISuballocator<T>, IDisposable whe
 
             header = header with { Occupied = false, BlockLengthLog = blockLengthLog, NextFree = long.MaxValue, PreviousFree = long.MaxValue };
 
-            _freeBlockIndexesStart[BitOperations.Log2((ulong)blockLength)] = index;
+            _freeBlockIndexesStart[blockLengthLog] = index;
             _freeBlockIndexesFlags |= blockLength;
 
             index += header.BlockLength;
@@ -112,7 +112,7 @@ public unsafe sealed class BuddyAllocator<T> : ISuballocator<T>, IDisposable whe
 
     public NativeMemorySegmentResource<T> RentResource(long length = 1)
     {
-        if (_disposed) throw new ObjectDisposedException(nameof(SweepingSuballocator<T>));
+        if (_disposed) throw new ObjectDisposedException(nameof(BuddySuballocator<T>));
         if (length == 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot rent a segment of size 0.");
 
         var rawSegment = Alloc(length);
@@ -122,14 +122,14 @@ public unsafe sealed class BuddyAllocator<T> : ISuballocator<T>, IDisposable whe
 
     public void ReturnResource(NativeMemorySegmentResource<T> segment)
     {
-        if (_disposed) throw new ObjectDisposedException(nameof(SweepingSuballocator<T>));
+        if (_disposed) throw new ObjectDisposedException(nameof(BuddySuballocator<T>));
 
         Free(segment.PElems - _pElems, segment.Length);
     }
 
     public NativeMemorySegment<T> Rent(long length = 1)
     {
-        if (_disposed) throw new ObjectDisposedException(nameof(SweepingSuballocator<T>));
+        if (_disposed) throw new ObjectDisposedException(nameof(BuddySuballocator<T>));
         if (length == 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot rent a segment of size 0.");
 
         var rawSegment = Alloc(length);
@@ -139,7 +139,7 @@ public unsafe sealed class BuddyAllocator<T> : ISuballocator<T>, IDisposable whe
 
     public void Return(NativeMemorySegment<T> segment)
     {
-        if (_disposed) throw new ObjectDisposedException(nameof(SweepingSuballocator<T>));
+        if (_disposed) throw new ObjectDisposedException(nameof(BuddySuballocator<T>));
 
         Free(segment.PElems - _pElems, segment.Length);
     }
@@ -147,7 +147,7 @@ public unsafe sealed class BuddyAllocator<T> : ISuballocator<T>, IDisposable whe
     private unsafe (long Index, long Length) Alloc(long length)
     {
         if (length == 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot rent a segment of size 0.");
-        if (_disposed) throw new ObjectDisposedException(nameof(BuddyAllocator<T>));
+        if (_disposed) throw new ObjectDisposedException(nameof(BuddySuballocator<T>));
 
         long index = -1;
         long blockLength = (long)BitOperations.RoundUpToPowerOf2((ulong)length) >> BitOperations.Log2((ulong)MinBlockLength);
@@ -207,12 +207,12 @@ public unsafe sealed class BuddyAllocator<T> : ISuballocator<T>, IDisposable whe
 
     private unsafe void Free(long offset, long length)
     {
-        if (_disposed) throw new ObjectDisposedException(nameof(BuddyAllocator<T>));
+        if (_disposed) throw new ObjectDisposedException(nameof(BuddySuballocator<T>));
 
         long freeBlockIndexIndex = offset / MinBlockLength;
 
         if (freeBlockIndexIndex < 0 || freeBlockIndexIndex >= _indexLength)
-            throw new ArgumentNullException(nameof(offset));
+            throw new ArgumentOutOfRangeException(nameof(offset));
 
         ref BlockHeader header = ref _pIndex[freeBlockIndexIndex];
 
@@ -357,7 +357,7 @@ public unsafe sealed class BuddyAllocator<T> : ISuballocator<T>, IDisposable whe
         }
     }
 
-    ~BuddyAllocator()
+    ~BuddySuballocator()
     {
         Dispose(disposing: false);
     }

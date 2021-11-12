@@ -3,17 +3,19 @@ using System.Runtime.InteropServices;
 
 namespace Suballocation.Collections;
 
-internal unsafe class NativeHeap<T> : IDisposable where T : unmanaged, IComparable<T>
+internal unsafe class NativeHeap<T> : IDisposable where T : unmanaged
 {
     private T* _pElems;
     private long _bufferLength;
     private long _tail;
+    private IComparer<T> _comparer;
     private bool _disposed;
 
-    public NativeHeap(long initialCapacity = 4)
+    public NativeHeap(long initialCapacity = 4, IComparer<T>? comparer = default)
     {
         _pElems = (T*)NativeMemory.Alloc((nuint)initialCapacity, (nuint)Unsafe.SizeOf<T>());
         _bufferLength = initialCapacity;
+        _comparer = comparer == default ? Comparer<T>.Default : comparer;
     }
 
     public long Length => _tail;
@@ -34,7 +36,7 @@ internal unsafe class NativeHeap<T> : IDisposable where T : unmanaged, IComparab
 
         long index = _tail;
         long parentIndex = index - 1 >> 1;
-        while (parentIndex >= 0 && _pElems[parentIndex].CompareTo(_pElems[index]) > 0)
+        while (parentIndex >= 0 && _comparer.Compare(_pElems[parentIndex], _pElems[index]) > 0)
         {
             _pElems[index] = _pElems[parentIndex];
             _pElems[parentIndex] = elem;
@@ -46,7 +48,7 @@ internal unsafe class NativeHeap<T> : IDisposable where T : unmanaged, IComparab
         _tail++;
     }
 
-    public T Extract()
+    public T Dequeue()
     {
         if (_tail == 0) throw new InvalidOperationException("Heap has 0 elements.");
 
@@ -61,14 +63,14 @@ internal unsafe class NativeHeap<T> : IDisposable where T : unmanaged, IComparab
             long index = 0;
             for (; ; )
             {
-                long childIndex1 = index * 2 + 1;
-                long childIndex2 = index * 2 + 2;
+                long childIndex1 = (index << 2) + 1;
+                long childIndex2 = (index << 2) + 2;
 
                 if (childIndex2 >= _tail)
                 {
                     if (childIndex1 < _tail)
                     {
-                        if (_pElems[index].CompareTo(_pElems[childIndex1]) > 0)
+                        if (_comparer.Compare(_pElems[index], _pElems[childIndex1]) > 0)
                         {
                             var temp = _pElems[index];
                             _pElems[index] = _pElems[childIndex1];
@@ -80,8 +82,8 @@ internal unsafe class NativeHeap<T> : IDisposable where T : unmanaged, IComparab
                 }
                 else
                 {
-                    long bestIndex = _pElems[childIndex1].CompareTo(_pElems[childIndex2]) < 0 ? childIndex1 : childIndex2;
-                    if (_pElems[index].CompareTo(_pElems[bestIndex]) < 0)
+                    long bestIndex = _comparer.Compare(_pElems[childIndex1], _pElems[childIndex2]) < 0 ? childIndex1 : childIndex2;
+                    if (_comparer.Compare(_pElems[index], _pElems[bestIndex]) < 0)
                         break;
                     var temp = _pElems[index];
                     _pElems[index] = _pElems[bestIndex];
@@ -91,18 +93,14 @@ internal unsafe class NativeHeap<T> : IDisposable where T : unmanaged, IComparab
             }
         }
 
-        /*int target = 1;
-        for (int i = 0; i < _tail; i++)
-        {
-            Console.Write(_pElems[i] + " ");
-            if (i + 1 == target)
-            {
-                Console.WriteLine();
-                target = target * 2 + 1;
-            }
-        }*/
-
         return value;
+    }
+
+    public T Peek()
+    {
+        if (_tail == 0) throw new InvalidOperationException("Heap has 0 elements.");
+
+        return _pElems[0];
     }
 
     public void Clear()

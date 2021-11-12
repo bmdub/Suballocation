@@ -22,12 +22,11 @@ namespace PerfTest
                 groups.Select(group => group.Key).ToArray(),
                 groups.Select(group => group.Select(result => double.Parse(result.GetValue("DurationMs"))).ToArray()).ToArray(),
                 groups.Select(group => group.Select(result => 0.0).ToArray()).ToArray());
-            plt.Legend(location: Alignment.UpperRight);
+            plt.Legend(location: Alignment.UpperLeft);
 
             // adjust axis limits so there is no padding below the bar graph
             plt.SetAxisLimits(yMin: 0);
             plt.YLabel("milliseconds");
-
             plt.SaveFig("bar_group.png");
 
 
