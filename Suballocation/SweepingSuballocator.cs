@@ -44,6 +44,8 @@ using System.Runtime.InteropServices;
 // amt data compacted
 // other mem usage
 
+// b-heap?
+
 // movement strategy objects
 // given stats on: side with largest free segment, side with most free sum, head dist from center, 
 

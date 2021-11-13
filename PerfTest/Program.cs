@@ -16,9 +16,9 @@ public partial class Program
 
     static void Main(string[] args)
     {
-		long length = 1l << 26;
+		long length = 1l << 14;
 
-		Test<SomeStruct>(10, length, (int)(length / 1000));
+		Test<SomeStruct>(2, length, (int)(length / 1000));
 
         Console.ReadKey();
     }
@@ -27,7 +27,7 @@ public partial class Program
 	{
 		var results = new List<BenchmarkResult>()
 		{
-			/*new SequentialFillFixedBenchmark<T>(new FixedStackSuballocator<T>(length, 1)).Run(iterations),
+			new SequentialFillFixedBenchmark<T>(new FixedStackSuballocator<T>(length, 1)).Run(iterations),
 			new SequentialFillFixedBenchmark<T>(new StackSuballocator<T>(length)).Run(iterations),
 			new SequentialFillFixedBenchmark<T>(new SequentialFitSuballocator<T>(length)).Run(iterations),
 			new SequentialFillFixedBenchmark<T>(new SweepingSuballocator<T>(length, 1)).Run(iterations),
@@ -43,7 +43,7 @@ public partial class Program
 			new SequentialFillReturnFixedBenchmark<T>(new BuddySuballocator<T>(length, 1)).Run(iterations),
 			new SequentialFillReturnFixedBenchmark<T>(new LocalBuddySuballocator<T>(length, 1)).Run(iterations),
 			//new SequentialFillReturnFixedBenchmark<T>(new ArrayPoolSuballocator<T>(length)).Run(iterations),
-			//new SequentialFillReturnFixedBenchmark<T>(new MemoryPoolSuballocator<T>(length)).Run(iterations),*/
+			//new SequentialFillReturnFixedBenchmark<T>(new MemoryPoolSuballocator<T>(length)).Run(iterations),
 
 			new SequentialFillVariableBenchmark<T>(new FixedStackSuballocator<T>(length, 1), 0, maxSegLen).Run(iterations),
 			new SequentialFillVariableBenchmark<T>(new StackSuballocator<T>(length), 0, maxSegLen).Run(iterations),

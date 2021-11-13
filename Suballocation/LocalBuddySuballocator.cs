@@ -26,6 +26,7 @@ public unsafe class LocalBuddySuballocator<T> : ISuballocator<T>, IDisposable wh
     private long _indexLength;
     private long _freeBlockFlagsPrev;
     private long _freeBlockFlagsNext;
+    private long _lastWriteIndex;
     private bool _disposed;
 
     static LocalBuddySuballocator()
@@ -112,23 +113,8 @@ public unsafe class LocalBuddySuballocator<T> : ISuballocator<T>, IDisposable wh
         _freeBlockFlagsPrev = 0;
         _freeBlockFlagsNext = 0;
 
-        long index = 0;
-
-        for (long blockLength = _maxBlockLength; blockLength > 0; blockLength >>= 1)
-        {
-            if (blockLength > _indexLength - index)
-            {
-                continue;
-            }
-
-            var blockLengthLog = BitOperations.Log2((ulong)blockLength);
-
-            _freeBlocksNext[blockLengthLog].Enqueue(new BlockHeader() { Index = index, BlockLengthLog = blockLengthLog });
-
-            _freeBlockFlagsNext |= blockLength;
-
-            index += blockLength;
-        }
+        _freeBlocksNext[^1].Enqueue(new BlockHeader() { Index = 0, BlockLength = _indexLength });
+        _freeBlockFlagsNext |= _indexLength;
     }
 
     public NativeMemorySegmentResource<T> RentResource(long length = 1)
@@ -178,46 +164,219 @@ public unsafe class LocalBuddySuballocator<T> : ISuballocator<T>, IDisposable wh
 
         long matchingBlockLengthsPrev = mask & _freeBlockFlagsPrev;
         long matchingBlockLengthsNext = mask & _freeBlockFlagsNext;
+        long matchingBlockLengthsBoth = matchingBlockLengthsPrev | matchingBlockLengthsNext;
 
-        // Choose the side with the largest free block, as a heuristic
+        // If no space left, check the smaller free blocks nearby, see if they can be combined.
+        long allBlockLengths = _freeBlockFlagsPrev | _freeBlockFlagsNext;
+
+        while (matchingBlockLengthsBoth == 0)
+        {
+            int smallerBlockIndex = BitOperations.TrailingZeroCount((ulong)allBlockLengths);
+
+            if (smallerBlockIndex == 64)
+            {
+                break;
+            }
+
+            while (_freeBlocksNext[smallerBlockIndex].Length > 1)
+            {
+                var header1 = _freeBlocksNext[smallerBlockIndex].Dequeue();
+                var header2 = _freeBlocksNext[smallerBlockIndex].Peek();
+
+                if (header2.Index != header1.Index + header1.BlockLength)
+                {
+                    _freeBlocksNext[smallerBlockIndex].Enqueue(header1);
+                    break;
+                }
+
+                _freeBlocksNext[smallerBlockIndex].Dequeue();
+                if (_freeBlocksNext[smallerBlockIndex].Length + _freeBlocksPrev[smallerBlockIndex].Length == 0)
+                {
+                    _freeBlockFlagsNext &= ~(1L << smallerBlockIndex);
+                }
+
+                header1 = header1 with { BlockLength = blockLength + header2.BlockLength };
+
+                _freeBlocksNext[smallerBlockIndex].Enqueue(header1);
+                _freeBlockFlagsNext |= (1L << smallerBlockIndex);
+            }
+
+            while (_freeBlocksPrev[smallerBlockIndex].Length > 1)
+            {
+                var header1 = _freeBlocksPrev[smallerBlockIndex].Dequeue();
+                var header2 = _freeBlocksPrev[smallerBlockIndex].Peek();
+
+                if (header2.Index + header2.BlockLength != header1.Index)
+                {
+                    _freeBlocksPrev[smallerBlockIndex].Enqueue(header1);
+                    break;
+                }
+
+                _freeBlocksPrev[smallerBlockIndex].Dequeue();
+                if (_freeBlocksPrev[smallerBlockIndex].Length + _freeBlocksPrev[smallerBlockIndex].Length == 0)
+                {
+                    _freeBlockFlagsPrev &= ~(1L << smallerBlockIndex);
+                }
+
+                header1 = header1 with { BlockLength = blockLength + header2.BlockLength };
+
+                _freeBlocksPrev[smallerBlockIndex].Enqueue(header1);
+                _freeBlockFlagsPrev |= (1L << smallerBlockIndex);
+            }
+
+            allBlockLengths >>= smallerBlockIndex + 1;
+
+            matchingBlockLengthsPrev = mask & _freeBlockFlagsPrev;
+            matchingBlockLengthsNext = mask & _freeBlockFlagsNext;
+            matchingBlockLengthsBoth = matchingBlockLengthsPrev | matchingBlockLengthsNext;
+        }
+
+        // If STILL no space left, look through ALL free blocks and try to combine them.
+        allBlockLengths = _freeBlockFlagsPrev | _freeBlockFlagsNext;
+
+        while (matchingBlockLengthsBoth == 0)
+        {
+            int smallerBlockIndex = BitOperations.TrailingZeroCount((ulong)allBlockLengths);
+
+            if (smallerBlockIndex == 64)
+            {
+                break;
+            }
+
+            .// maybe timsort heap in place, apply algo, then rebuild heap / heapify?
+
+            while (_freeBlocksNext[smallerBlockIndex].Length > 1)
+            {
+                var header1 = _freeBlocksNext[smallerBlockIndex].Dequeue();
+                var header2 = _freeBlocksNext[smallerBlockIndex].Peek();
+
+                if (header2.Index != header1.Index + header1.BlockLength)
+                {
+                    _freeBlocksNext[smallerBlockIndex].Enqueue(header1);
+                    break;
+                }
+
+                _freeBlocksNext[smallerBlockIndex].Dequeue();
+                if (_freeBlocksNext[smallerBlockIndex].Length + _freeBlocksPrev[smallerBlockIndex].Length == 0)
+                {
+                    _freeBlockFlagsNext &= ~(1L << smallerBlockIndex);
+                }
+
+                header1 = header1 with { BlockLength = blockLength + header2.BlockLength };
+
+                _freeBlocksNext[smallerBlockIndex].Enqueue(header1);
+                _freeBlockFlagsNext |= (1L << smallerBlockIndex);
+            }
+
+            while (_freeBlocksPrev[smallerBlockIndex].Length > 1)
+            {
+                var header1 = _freeBlocksPrev[smallerBlockIndex].Dequeue();
+                var header2 = _freeBlocksPrev[smallerBlockIndex].Peek();
+
+                if (header2.Index + header2.BlockLength != header1.Index)
+                {
+                    _freeBlocksPrev[smallerBlockIndex].Enqueue(header1);
+                    break;
+                }
+
+                _freeBlocksPrev[smallerBlockIndex].Dequeue();
+                if (_freeBlocksPrev[smallerBlockIndex].Length + _freeBlocksPrev[smallerBlockIndex].Length == 0)
+                {
+                    _freeBlockFlagsPrev &= ~(1L << smallerBlockIndex);
+                }
+
+                header1 = header1 with { BlockLength = blockLength + header2.BlockLength };
+
+                _freeBlocksPrev[smallerBlockIndex].Enqueue(header1);
+                _freeBlockFlagsPrev |= (1L << smallerBlockIndex);
+            }
+
+            allBlockLengths >>= smallerBlockIndex + 1;
+
+            matchingBlockLengthsPrev = mask & _freeBlockFlagsPrev;
+            matchingBlockLengthsNext = mask & _freeBlockFlagsNext;
+            matchingBlockLengthsBoth = matchingBlockLengthsPrev | matchingBlockLengthsNext;
+        }
+
+        if (matchingBlockLengthsBoth == 0)
+        {
+            throw new OutOfMemoryException();
+        }
+
+        // Choose the side with the most free block sizes, as a heuristic
         long matchingBlockLengths = matchingBlockLengthsNext;
         ref long freeBlockFlags = ref _freeBlockFlagsNext;
         var freeBlocks = _freeBlocksNext;
+        var freeBlocksOther = _freeBlocksPrev;
 
         if (BitOperations.PopCount((ulong)matchingBlockLengthsPrev) > BitOperations.PopCount((ulong)matchingBlockLengthsNext))
         {
             matchingBlockLengths = matchingBlockLengthsPrev;
             freeBlockFlags = ref _freeBlockFlagsPrev;
             freeBlocks = _freeBlocksPrev;
+            freeBlocksOther = _freeBlocksNext;
         }
 
-        if (matchingBlockLengths == 0)
-        {
-            throw new OutOfMemoryException();
-        }
-
-        int freeBlockIndex = BitOperations.Log2((ulong)matchingBlockLengths);
+        int freeBlockIndex = BitOperations.TrailingZeroCount((ulong)matchingBlockLengths);
 
         var header = freeBlocks[freeBlockIndex].Dequeue();
 
-        .//todo: combine buddies here? or where? can/should defer?
-        //heap: if one split, could dequeue and enqueue optimize at once.
-        //consider super blocks
+        // Choose the closest index to the last write, pushing the others to the other queue.
+        while (freeBlocks[freeBlockIndex].Length > 0 && Math.Abs(freeBlocks[freeBlockIndex].Peek().Index - _lastWriteIndex) < (Math.Abs(header.Index - _lastWriteIndex)))
+        {
+            freeBlocksOther[freeBlockIndex].Enqueue(header);
+
+            header = freeBlocks[freeBlockIndex].Dequeue();
+        }
+
+        // Combine any free buddies we see while we're here.
+        if (freeBlocks == _freeBlocksNext)
+        {
+            while (freeBlocks[freeBlockIndex].Length > 0)
+            {
+                var header2 = freeBlocks[freeBlockIndex].Peek();
+
+                if (header2.Index != header.Index + header.BlockLength)
+                {
+                    break;
+                }
+
+                freeBlocks[freeBlockIndex].Dequeue();
+
+                header = header with { BlockLength = blockLength + header2.BlockLength };
+            }
+        }
+        else
+        {
+            while (freeBlocks[freeBlockIndex].Length > 0)
+            {
+                var header2 = freeBlocks[freeBlockIndex].Peek();
+
+                if (header2.Index + header2.BlockLength != header.Index)
+                {
+                    break;
+                }
+
+                freeBlocks[freeBlockIndex].Dequeue();
+
+                header = header with { Index = header2.Index, BlockLength = blockLength + header2.BlockLength };
+            }
+        }
 
         if (_freeBlocksNext[freeBlockIndex].Length + _freeBlocksPrev[freeBlockIndex].Length == 0)
         {
-            freeBlockFlags &= ~header.BlockLength;
+            freeBlockFlags &= ~(1L << freeBlockIndex);
         }
 
-        for (int i = minFreeBlockIndex; i < freeBlockIndex; i++)
+        if (header.BlockLength > blockLength)
         {
-            // Split in half
-            header = header with { BlockLengthLog = header.BlockLengthLog - 1 };
+            // Split out blocks
+            var header2 = new BlockHeader() { Index = header.Index + blockLength, BlockLength = header.BlockLength - blockLength };
+            var freeBlockLengthLog = BitOperations.Log2((ulong)header2.BlockLength);
+            freeBlocks[freeBlockLengthLog].Enqueue(header2);
+            freeBlockFlags |= (1L << freeBlockLengthLog);
 
-            var header2 = new BlockHeader() { Index = header.Index + (1L << (header.BlockLengthLog - 1)), BlockLengthLog = header.BlockLengthLog };
-
-            freeBlocks[header.BlockLengthLog].Enqueue(header2);
-            freeBlockFlags |= header.BlockLength;
+            header = header with { BlockLength = blockLength };
         }
 
         Allocations++;
@@ -235,24 +394,24 @@ public unsafe class LocalBuddySuballocator<T> : ISuballocator<T>, IDisposable wh
         if (index < 0 || index >= _indexLength)
             throw new ArgumentOutOfRangeException(nameof(offset));
 
-        int lengthLog = BitOperations.Log2((ulong)length);
+        var freeBlockLengthLog = BitOperations.Log2((ulong)length);
 
-        var header = new BlockHeader() { Index = index, BlockLengthLog = lengthLog };
+        var header = new BlockHeader() { Index = index, BlockLength = length };
 
-        if (_freeBlocksNext[lengthLog].Length > 0 && index >= _freeBlocksNext[lengthLog].Peek().Index)
+        if (_freeBlocksNext[freeBlockLengthLog].Length > 0 && index >= _freeBlocksNext[freeBlockLengthLog].Peek().Index)
         {
-            _freeBlocksNext[lengthLog].Enqueue(header);
-            _freeBlockFlagsNext |= header.BlockLength;
+            _freeBlocksNext[freeBlockLengthLog].Enqueue(header);
+            _freeBlockFlagsNext |= (1L << freeBlockLengthLog);
         }
-        else if (_freeBlocksPrev[lengthLog].Length > 0 && index <= _freeBlocksPrev[lengthLog].Peek().Index)
+        else if (_freeBlocksPrev[freeBlockLengthLog].Length > 0 && index <= _freeBlocksPrev[freeBlockLengthLog].Peek().Index)
         {
-            _freeBlocksPrev[lengthLog].Enqueue(header);
-            _freeBlockFlagsPrev |= header.BlockLength;
+            _freeBlocksPrev[freeBlockLengthLog].Enqueue(header);
+            _freeBlockFlagsPrev |= (1L << freeBlockLengthLog);
         }
         else
         {
-            _freeBlocksNext[lengthLog].Enqueue(header);
-            _freeBlockFlagsNext |= header.BlockLength;
+            _freeBlocksNext[freeBlockLengthLog].Enqueue(header);
+            _freeBlockFlagsNext |= (1L << freeBlockLengthLog);
         }
 
         Allocations--;
@@ -317,24 +476,10 @@ public unsafe class LocalBuddySuballocator<T> : ISuballocator<T>, IDisposable wh
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
     readonly struct BlockHeader
     {
-        private readonly byte _lengthLog;
         private readonly long _index;
-
-        public int BlockLengthLog { get => _lengthLog; init => _lengthLog = (byte)value; }
-        public long BlockLength
-        {
-            get => (1L << BlockLengthLog);
-            init
-            {
-                if (BitOperations.IsPow2(value) == false)
-                {
-                    throw new ArgumentOutOfRangeException(nameof(BlockLength), "Must be a power of 2.");
-                }
-
-                BlockLengthLog = BitOperations.Log2((ulong)value);
-            }
-        }
+        private readonly long _lengthInBlocks;
 
         public long Index { get => _index; init => _index = value; }
+        public long BlockLength { get => _lengthInBlocks; init => _lengthInBlocks = value; }
     }
 }
