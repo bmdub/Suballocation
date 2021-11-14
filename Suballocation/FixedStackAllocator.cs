@@ -111,6 +111,11 @@ public unsafe sealed class FixedStackSuballocator<T> : ISuballocator<T>, IDispos
             throw new ArgumentException($"No rented segments found.");
         }
 
+        if (index + length != LengthUsed)
+        {
+            throw new ArgumentException($"Returned segment+length does not have the expected value ({LengthUsed}).");
+        }
+
         if (length != _segmentLength)
         {
             throw new ArgumentException($"Returned segment does not have expected length ({_segmentLength:N0}).");

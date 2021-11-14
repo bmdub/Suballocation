@@ -4,6 +4,49 @@ using Suballocation;
 
 namespace PerfTest;
 
+//https://docs.microsoft.com/en-us/archive/msdn-magazine/2000/december/garbage-collection-part-2-automatic-memory-management-in-the-microsoft-net-framework 
+// The newer an object is, the shorter its lifetime will be.
+// The older an object is, the longer its lifetime will be.
+// Newer objects tend to have strong relationships to each other and are frequently accessed around the same time.
+// Compacting a portion of the heap is faster than compacting the whole heap.
+
+//me
+// The larger an object is, the longer its lifetime will be.
+// The larger an object is, the larger the acceptable update window / placement distance.
+// Less fragmentation if segment is near similar-sized segments?
+
+//todo: update window(s)
+// compaction
+// also option for full compaction?
+// consider segment updates, which will affect the update window. combine with compaction?
+// will starting capacities make better efficiency?
+
+// Generational
+
+
+// update window(s).  need segment graph to merge? best to merge on demand. just return list.
+
+
+// tests
+// varying buffer sizes
+// varying allocation sizes
+// different fixed levels of allocation sizes
+// random free/rent for fixed level allocations
+// random free/rent for varying alloc sizes
+// varying block sizes (for varying alloc tests)
+// compaction vs without
+// overprovisioning needed
+
+// stats
+// failed with OOO count
+// compaction rate
+// update windows / locality of rentals
+// free space when OOO
+// amt data compacted
+// other mem usage
+
+// b-heap?
+
 public partial class Program
 {
 	struct SomeStruct
@@ -16,41 +59,48 @@ public partial class Program
 
     static void Main(string[] args)
     {
-		long length = 1l << 14;
+		long length = 1L << 14;
 
-		Test<SomeStruct>(2, length, (int)(length / 1000));
+		Test<SomeStruct>(1, length, 1, 2);// (int)(length / 10000), 2);
 
         Console.ReadKey();
     }
 
-	static void Test<T>(int iterations, long length, int maxSegLen) where T : unmanaged
+	static void Test<T>(int iterations, long length, int maxSegLen, long blockLength) where T : unmanaged
 	{
+		Console.WriteLine($"Buffer Length: {length}");
+
 		var results = new List<BenchmarkResult>()
 		{
-			new SequentialFillFixedBenchmark<T>(new FixedStackSuballocator<T>(length, 1)).Run(iterations),
-			new SequentialFillFixedBenchmark<T>(new StackSuballocator<T>(length)).Run(iterations),
-			new SequentialFillFixedBenchmark<T>(new SequentialFitSuballocator<T>(length)).Run(iterations),
-			new SequentialFillFixedBenchmark<T>(new SweepingSuballocator<T>(length, 1)).Run(iterations),
-			new SequentialFillFixedBenchmark<T>(new BuddySuballocator<T>(length, 1)).Run(iterations),
-			new SequentialFillFixedBenchmark<T>(new LocalBuddySuballocator<T>(length, 1)).Run(iterations),
+			/*new FillFixedBenchmark<T>(new FixedStackSuballocator<T>(length, 1)).Run(iterations),
+			new FillFixedBenchmark<T>(new StackSuballocator<T>(length)).Run(iterations),
+			new FillFixedBenchmark<T>(new SequentialFitSuballocator<T>(length)).Run(iterations),
+			new FillFixedBenchmark<T>(new BuddySuballocator<T>(length, 1)).Run(iterations),
+			new FillFixedBenchmark<T>(new LocalBuddySuballocator<T>(length, 1)).Run(iterations),
 			//new SequentialFillFixedBenchmark<T>(new ArrayPoolSuballocator<T>(length)).Run(iterations),
 			//new SequentialFillFixedBenchmark<T>(new MemoryPoolSuballocator<T>(length)).Run(iterations),
 
-			new SequentialFillReturnFixedBenchmark<T>(new FixedStackSuballocator<T>(length, 1)).Run(iterations),
-			new SequentialFillReturnFixedBenchmark<T>(new StackSuballocator<T>(length)).Run(iterations),
-			new SequentialFillReturnFixedBenchmark<T>(new SequentialFitSuballocator<T>(length)).Run(iterations),
-			new SequentialFillReturnFixedBenchmark<T>(new SweepingSuballocator<T>(length, 1)).Run(iterations),
-			new SequentialFillReturnFixedBenchmark<T>(new BuddySuballocator<T>(length, 1)).Run(iterations),
-			new SequentialFillReturnFixedBenchmark<T>(new LocalBuddySuballocator<T>(length, 1)).Run(iterations),
+			new FillEmptyFixedBenchmark<T>(new FixedStackSuballocator<T>(length, 1)).Run(iterations),
+			new FillEmptyFixedBenchmark<T>(new StackSuballocator<T>(length)).Run(iterations),
+			new FillEmptyFixedBenchmark<T>(new SequentialFitSuballocator<T>(length)).Run(iterations),
+			new FillEmptyFixedBenchmark<T>(new BuddySuballocator<T>(length, 1)).Run(iterations),
+			new FillEmptyFixedBenchmark<T>(new LocalBuddySuballocator<T>(length, 1)).Run(iterations),
 			//new SequentialFillReturnFixedBenchmark<T>(new ArrayPoolSuballocator<T>(length)).Run(iterations),
 			//new SequentialFillReturnFixedBenchmark<T>(new MemoryPoolSuballocator<T>(length)).Run(iterations),
 
-			new SequentialFillVariableBenchmark<T>(new FixedStackSuballocator<T>(length, 1), 0, maxSegLen).Run(iterations),
-			new SequentialFillVariableBenchmark<T>(new StackSuballocator<T>(length), 0, maxSegLen).Run(iterations),
-			new SequentialFillVariableBenchmark<T>(new SequentialFitSuballocator<T>(length), 0, maxSegLen).Run(iterations),
-			new SequentialFillVariableBenchmark<T>(new SweepingSuballocator<T>(length, 1), 0, maxSegLen).Run(iterations),
-			new SequentialFillVariableBenchmark<T>(new BuddySuballocator<T>(length, 1), 0, maxSegLen).Run(iterations),
-			new SequentialFillVariableBenchmark<T>(new LocalBuddySuballocator<T>(length, 1), 0, maxSegLen).Run(iterations),
+			new FillVariableBenchmark<T>(new FixedStackSuballocator<T>(length, 1), 0, maxSegLen).Run(iterations),
+			new FillVariableBenchmark<T>(new StackSuballocator<T>(length), 0, maxSegLen).Run(iterations),
+			new FillVariableBenchmark<T>(new SequentialFitSuballocator<T>(length), 0, maxSegLen).Run(iterations),
+			new FillVariableBenchmark<T>(new BuddySuballocator<T>(length, blockLength), 0, maxSegLen).Run(iterations),
+			new FillVariableBenchmark<T>(new LocalBuddySuballocator<T>(length, blockLength), 0, maxSegLen).Run(iterations),
+			//new SequentialFillVariableBenchmark<T>(new ArrayPoolSuballocator<T>(length), 0, maxSegLen).Run(iterations),
+			//new SequentialFillVariableBenchmark<T>(new MemoryPoolSuballocator<T>(length), 0, maxSegLen).Run(iterations),
+			
+			new RandomBenchmark<T>(new FixedStackSuballocator<T>(length, 1), 0, maxSegLen).Run(iterations),
+			new RandomBenchmark<T>(new StackSuballocator<T>(length), 0, maxSegLen).Run(iterations),
+			new RandomBenchmark<T>(new SequentialFitSuballocator<T>(length), 0, maxSegLen).Run(iterations),
+			new RandomBenchmark<T>(new BuddySuballocator<T>(length, blockLength), 0, maxSegLen).Run(iterations),*/
+			new RandomBenchmark<T>(new LocalBuddySuballocator<T>(length, blockLength), 0, maxSegLen).Run(iterations),
 			//new SequentialFillVariableBenchmark<T>(new ArrayPoolSuballocator<T>(length), 0, maxSegLen).Run(iterations),
 			//new SequentialFillVariableBenchmark<T>(new MemoryPoolSuballocator<T>(length), 0, maxSegLen).Run(iterations),
 		};

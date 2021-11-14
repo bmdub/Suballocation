@@ -3,14 +3,14 @@
 
 namespace PerfTest
 {
-    class SequentialFillFixedBenchmark<T> : BenchmarkBase where T : unmanaged
+    class FillEmptyFixedBenchmark<T> : BenchmarkBase where T : unmanaged
     {
         public string Allocator { get; init; }
         public string Size { get; init; }
-        public long LengthRented { get; private set; }
+        public string LengthRented { get; private set; } = "";
         private ISuballocator<T> _suballocator;
 
-        public SequentialFillFixedBenchmark(ISuballocator<T> suballocator)
+        public FillEmptyFixedBenchmark(ISuballocator<T> suballocator)
         {
             Allocator = suballocator.GetType().Name;
             Size = suballocator.SizeTotal.ToString("N0");
@@ -20,16 +20,25 @@ namespace PerfTest
         public unsafe override void PrepareIteration()
         {
             _suballocator.Clear();
-            LengthRented = 0;
         }
 
         public unsafe override void RunIteration()
         {
+            List<NativeMemorySegment<T>> segments = new List<NativeMemorySegment<T>>((int)_suballocator.LengthTotal);
+            long lengthRented = 0;
+
             for (int i = 0; i < _suballocator.LengthTotal; i++)
             {
-                _suballocator.Rent(1);
-                LengthRented += 1;
+                segments.Add(_suballocator.Rent(1));
+                lengthRented += 1;
             }
+
+            for (int i = segments.Count - 1; i >= 0; i--)
+            {
+                _suballocator.Return(segments[i]);
+            }
+
+            LengthRented = lengthRented.ToString("N0");
         }
 
         public override void Dispose()
@@ -37,4 +46,6 @@ namespace PerfTest
             _suballocator.Dispose();
         }
     }
+
+
 }

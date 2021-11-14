@@ -122,7 +122,9 @@ public unsafe sealed class SequentialFitSuballocator<T> : ISuballocator<T>, IDis
                 }
             }
 
-            while (_indexQueue.Length > 0)
+            var indexCount = _indexQueue.Length;
+
+            for(long i=0; i<indexCount; i++)
             {
                 var indexEntry = _indexQueue.Dequeue();
 
@@ -164,6 +166,8 @@ public unsafe sealed class SequentialFitSuballocator<T> : ISuballocator<T>, IDis
                     _futureQueue.EnqueueHead(indexEntry);
                 }
             }
+
+            throw new OutOfMemoryException();
         }
     }
 
