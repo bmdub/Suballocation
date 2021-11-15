@@ -1,16 +1,10 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Collections.Immutable;
-using System.Linq;
-using System.Runtime.CompilerServices;
-using System.Text;
-using System.Threading.Tasks;
+﻿using System.Runtime.CompilerServices;
 
 namespace Suballocation
 {
     public class UpdateWindows<T> where T : unmanaged
     {
-        public unsafe UpdateWindows(List<NativeMemorySegment<T>> windows)
+        public unsafe UpdateWindows(List<NativeMemorySegment<T>> windows, long totalWindowLengthUsed)
         {
             Windows = windows;
 
@@ -26,10 +20,11 @@ namespace Suballocation
                 TotalLength += window.Length;
             }
 
-            TotalFillPercentage = 
+            TotalFillPercentage = totalWindowLengthUsed / (double)TotalLength;
+            SpreadFillPercentage = totalWindowLengthUsed / (double)SpreadLength;
         }
 
-        public ImmutableList<NativeMemorySegment<T>> Windows { get; init; }
+        public IReadOnlyList<NativeMemorySegment<T>> Windows { get; init; }
 
         public long SpreadLength { get; init; }
         public long SpreadSize => SpreadLength * Unsafe.SizeOf<T>();

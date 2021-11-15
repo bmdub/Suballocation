@@ -61,7 +61,7 @@ public partial class Program
     {
         long length = 1L << 20;
 
-        Test<SomeStruct>(1, length, 16, 8);// (int)(length / 10000), 2);
+        Test<SomeStruct>(1, length, 256, 1);// (int)(length / 10000), 2);
 
         Console.ReadKey();
     }
@@ -72,7 +72,7 @@ public partial class Program
 
 		List<BenchmarkResult> results;
 
-		results = new List<BenchmarkResult>()
+		/*results = new List<BenchmarkResult>()
         {
             new FillFixedBenchmark<T>(new FixedStackSuballocator<T>(length, 1)).Run(iterations),
             new FillFixedBenchmark<T>(new StackSuballocator<T>(length)).Run(iterations),
@@ -111,7 +111,7 @@ public partial class Program
 
         results.WriteToConsole();
 		results.WriteToBarGraph(nameof(FillVariableBenchmark<T>), "Allocator", "Duration (ms)", result => result.GetValue("Allocator"), result => double.Parse(result.GetValue("DurationMs")));
-		
+		*/
 		results = new List<BenchmarkResult>()
         {
             new RandomBenchmark<T>(new SequentialFitSuballocator<T>(length), 0, maxSegLen).Run(iterations),

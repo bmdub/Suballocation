@@ -1,19 +1,14 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Collections.Immutable;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿
+using System.Runtime.CompilerServices;
 
 namespace Suballocation
 {
-    //todo: keep running sum of segment length, and unfilled segment length. pass to updatewindows
-
     public class UpdateWindowTracker1<T> where T : unmanaged
     {
         private readonly Stack<NativeMemorySegment<T>> _windowsPrev = new();
         private readonly Stack<NativeMemorySegment<T>> _windowsNext = new();
         private readonly double _minimumFillPercentage;
+        private long _totalWindowLengthUsed;
 
         public UpdateWindowTracker1(double minimumFillPercentage)
         {
@@ -22,63 +17,86 @@ namespace Suballocation
 
         public double MinimumFillPercentage => _minimumFillPercentage;
 
-        public unsafe UpdateWindowTracker1(ISegment<T> segment)
+        public unsafe void Register(ISegment<T> segment)
         {
+            _totalWindowLengthUsed += segment.Length;
+
             bool havePrevWindow = _windowsPrev.TryPeek(out var prevWindow);
             bool haveNextWindow = _windowsNext.TryPeek(out var nextWindow);
 
-            while(haveNextWindow && nextWindow.PElems < segment.PElems)
+            while (haveNextWindow && nextWindow.PElems < segment.PElems)
             {
-                _windowsPrev.Push(_windowsNext.Pop());
+                prevWindow = _windowsNext.Pop();
+                _windowsPrev.Push(prevWindow);
+                havePrevWindow = true;
 
                 haveNextWindow = _windowsNext.TryPeek(out nextWindow);
             }
 
             while (havePrevWindow && prevWindow.PElems > segment.PElems)
             {
-                _windowsNext.Push(_windowsPrev.Pop());
+                nextWindow = _windowsPrev.Pop();
+                _windowsNext.Push(nextWindow);
+                haveNextWindow = true;
 
-                haveNextWindow = _windowsPrev.TryPeek(out prevWindow);
+                havePrevWindow = _windowsPrev.TryPeek(out prevWindow);
             }
 
-            if(haveNextWindow && CanCombine(segment.PElems, segment.Length, nextWindow.PElems, nextWindow.Length))
+            if (haveNextWindow && CanCombine(segment.PElems, segment.Size, nextWindow.PElems, nextWindow.Size))
             {
-                var window = _windowsNext.Pop();
-                window = window with { PElems = segment.PElems, Length = window.Length + segment.Length };
-                _windowsNext.Push(window);
+                _windowsNext.Pop();
+                nextWindow = nextWindow with { PElems = segment.PElems, Length = ((long)nextWindow.PElems + nextWindow.Size - (long)segment.PElems) / Unsafe.SizeOf<T>() };
+
+                while (_windowsNext.TryPeek(out var seg) && CanCombine(nextWindow.PElems, nextWindow.Size, seg.PElems, seg.Size))
+                {
+                    _windowsNext.Pop();
+                    nextWindow = nextWindow with { PElems = nextWindow.PElems, Length = ((long)seg.PElems + seg.Size - (long)nextWindow.PElems) / Unsafe.SizeOf<T>() };
+                }
+
+                _windowsNext.Push(nextWindow);
+
                 return;
             }
 
-            if (havePrevWindow && CanCombine(prevWindow.PElems, prevWindow.Length, segment.PElems, segment.Length))
-            { 
-                var window = _windowsPrev.Pop();
-                window = window with { PElems = window.PElems, Length = window.Length + segment.Length };
-                _windowsPrev.Push(window);
-                return;
+            if (havePrevWindow && CanCombine(prevWindow.PElems, prevWindow.Size, segment.PElems, segment.Size))
+            {
+                _windowsPrev.Pop();
+                prevWindow = prevWindow with { PElems = prevWindow.PElems, Length = ((long)segment.PElems + segment.Size - (long)prevWindow.PElems) / Unsafe.SizeOf<T>() };
+
+                while (_windowsPrev.TryPeek(out var seg) && CanCombine(seg.PElems, seg.Size, prevWindow.PElems, prevWindow.Size))
+                {
+                    _windowsPrev.Pop();
+                    prevWindow = prevWindow with { PElems = seg.PElems, Length = ((long)prevWindow.PElems + prevWindow.Size - (long)seg.PElems) / Unsafe.SizeOf<T>() };
+                }
+
+                _windowsPrev.Push(prevWindow);
             }
 
             _windowsPrev.Push(new NativeMemorySegment<T>() { PElems = segment.PElems, Length = segment.Length });
         }
 
-        private unsafe bool CanCombine(T* pElemsPrev, long lengthPrev, T* pElemsNext, long lengthNext)
+        private unsafe bool CanCombine(T* pElemsPrev, long sizePrev, T* pElemsNext, long sizeNext)
         {
-            return (lengthNext + lengthPrev) / (pElemsNext + lengthNext - pElemsPrev) >= _minimumFillPercentage;
+            //var diff = (pElemsNext + lengthNext - pElemsPrev);
+            //var value = (lengthNext + lengthPrev) / (double)((long)pElemsNext + lengthNext - (long)pElemsPrev);
+            //var thresh = (_minimumFillPercentage / (_windowsPrev.Count + _windowsNext.Count));
+            return (sizeNext + sizePrev) / (double)((long)pElemsNext + sizeNext - (long)pElemsPrev) >= (_minimumFillPercentage);// / (_windowsPrev.Count + _windowsNext.Count));
         }
 
         public unsafe UpdateWindows<T> BuildUpdateWindows()
         {
-            foreach (var window in _windowsPrev)
+            while(_windowsPrev.TryPop(out var window))
             {
                 _windowsNext.Push(window);
             }
 
             List<NativeMemorySegment<T>> windows = new List<NativeMemorySegment<T>>(_windowsNext.Count);
 
-            foreach(var window in _windowsNext)
+            foreach (var window in _windowsNext)
             {
-                if(windows.Count > 0 && CanCombine(windows[^1].PElems, windows[^1].Length, window.PElems, window.Length))
+                if (windows.Count > 0 && CanCombine(windows[^1].PElems, windows[^1].Size, window.PElems, window.Size))
                 {
-                    windows[^1] = window with { PElems = windows[^1].PElems, Length = window.Length + windows[^1].Length };
+                    windows[^1] = window with { PElems = windows[^1].PElems, Length = ((long)window.PElems + window.Size - (long)windows[^1].PElems) / Unsafe.SizeOf<T>() };
                 }
                 else
                 {
@@ -86,7 +104,7 @@ namespace Suballocation
                 }
             }
 
-            return new UpdateWindows<T>(windows);
+            return new UpdateWindows<T>(windows, _totalWindowLengthUsed);
         }
 
         public void Clear()
@@ -99,9 +117,10 @@ namespace Suballocation
     public class UpdateWindowTracker2<T> where T : unmanaged
     {
         private static readonly Comparer<NativeMemorySegment<T>> _segmentComparer;
-        private readonly List<NativeMemorySegment<T>> _olderWindows = new();        
+        private readonly List<NativeMemorySegment<T>> _olderWindows = new();
         private readonly double _minimumFillPercentage;
         private NativeMemorySegment<T> _currentWindow;
+        private long _totalWindowLengthUsed;
 
         static unsafe UpdateWindowTracker2()
         {
@@ -115,9 +134,11 @@ namespace Suballocation
 
         public double MinimumFillPercentage => _minimumFillPercentage;
 
-        public unsafe UpdateWindowTracker2(ISegment<T> segment)
+        public unsafe void Register(ISegment<T> segment)
         {
-            if(_currentWindow.Length == 0)
+            _totalWindowLengthUsed += segment.Length;
+
+            if (_currentWindow.Length == 0)
             {
                 _currentWindow = new NativeMemorySegment<T>() { PElems = segment.PElems, Length = segment.Length };
                 return;
@@ -151,7 +172,7 @@ namespace Suballocation
 
         public unsafe UpdateWindows<T> BuildUpdateWindows()
         {
-            if(_currentWindow.Length > 0)
+            if (_currentWindow.Length > 0)
             {
                 _olderWindows.Add(_currentWindow);
                 _currentWindow = default;
@@ -173,13 +194,14 @@ namespace Suballocation
                 }
             }
 
-            return new UpdateWindows<T>(windows);
+            return new UpdateWindows<T>(windows, _totalWindowLengthUsed);
         }
 
         public void Clear()
         {
             _olderWindows.Clear();
             _currentWindow = default;
+            _totalWindowLengthUsed = 0;
         }
     }
 }

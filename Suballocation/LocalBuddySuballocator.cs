@@ -317,7 +317,7 @@ public unsafe class LocalBuddySuballocator<T> : ISuballocator<T>, IDisposable wh
         var header = freeBlocks[freeBlockIndex].Dequeue();
 
         // Choose the closest index to the last write, pushing the others to the other queue.
-        while (freeBlocks[freeBlockIndex].Length > 0 && Math.Abs(freeBlocks[freeBlockIndex].Peek().Index - _lastWriteIndex) < (Math.Abs(header.Index - _lastWriteIndex)))
+        while (freeBlocks[freeBlockIndex].Length > 0 && Math.Abs(freeBlocks[freeBlockIndex].Peek().Index - _lastWriteIndex) < Math.Abs(header.Index - _lastWriteIndex))
         {
             freeBlocksOther[freeBlockIndex].Enqueue(header);
 
