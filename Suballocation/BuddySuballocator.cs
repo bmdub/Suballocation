@@ -117,7 +117,7 @@ public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T
 
         var rawSegment = Alloc(length);
 
-        return new NativeMemorySegmentResource<T>(this, _pElems + rawSegment.Index * MinBlockLength, rawSegment.Length);
+        return new NativeMemorySegmentResource<T>(this, _pElems + rawSegment.Index * MinBlockLength, rawSegment.Length * MinBlockLength);
     }
 
     public void ReturnResource(NativeMemorySegmentResource<T> segment)
@@ -134,7 +134,7 @@ public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T
 
         var rawSegment = Alloc(length);
 
-        return new NativeMemorySegment<T>(_pElems + rawSegment.Index * MinBlockLength, rawSegment.Length);
+        return new NativeMemorySegment<T>(_pElems + rawSegment.Index * MinBlockLength, rawSegment.Length * MinBlockLength);
     }
 
     public void Return(NativeMemorySegment<T> segment)
@@ -214,7 +214,7 @@ public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T
         //if (LengthUsed > LengthTotal)
         //Debugger.Break();
 
-        return (index, length);
+        return (index, header.BlockLength);
     }
 
     private unsafe void Free(long offset, long length)

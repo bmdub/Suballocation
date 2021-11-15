@@ -155,7 +155,7 @@ public unsafe class LocalBuddySuballocator<T> : ISuballocator<T>, IDisposable wh
 
         int minFreeBlockIndex = BitOperations.Log2((ulong)blockLength);
 
-        long mask = ~(Math.Max(1, (minFreeBlockIndex << 1)) - 1);
+        long mask = ~((1 << minFreeBlockIndex) - 1);
 
         long matchingBlockLengthsPrev = mask & _freeBlockFlagsPrev;
         long matchingBlockLengthsNext = mask & _freeBlockFlagsNext;

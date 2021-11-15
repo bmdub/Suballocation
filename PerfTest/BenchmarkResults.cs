@@ -42,6 +42,35 @@ namespace PerfTest
             process.Start();
         }
 
+        public static void WriteToBarGraph(this IEnumerable<BenchmarkResult> results, string name, string xLabel, string yLabel, 
+            Func<BenchmarkResult, string> labelSelector, Func<BenchmarkResult, double> valueSelector)
+        {
+            var plt = new ScottPlot.Plot(1000, 400);
+
+            //var bar = plt.AddBar(results.Select(result => double.Parse(result.GetValue("DurationMs"))).ToArray());
+            plt.XTicks(results.Select(result => labelSelector(result)).ToArray());
+            plt.XLabel(xLabel);
+            plt.YLabel(yLabel);
+
+            var bar = plt.AddBar(results.Select(result => valueSelector(result)).ToArray());
+            bar.ShowValuesAboveBars = true;
+
+            // adjust axis limits so there is no padding below the bar graph
+            plt.SetAxisLimits(yMin: 0);
+
+            plt.SaveFig($"{name}.png");
+
+            Process process = new Process();
+            ProcessStartInfo startInfo = new ProcessStartInfo
+            {
+                UseShellExecute = true,
+                WindowStyle = ProcessWindowStyle.Hidden,
+                FileName = $"{name}.png",
+            };
+            process.StartInfo = startInfo;
+            process.Start();
+        }
+
         public static void WriteToConsole(this IEnumerable<IGrouping<string, BenchmarkResult>> resultGroups)
         {
             foreach(var group in resultGroups)

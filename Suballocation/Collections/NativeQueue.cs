@@ -58,21 +58,23 @@ internal unsafe class NativeQueue<T> : IDisposable where T : unmanaged
     {
         long newLength = _bufferLength << 1;
         var pElemsNew = (T*)NativeMemory.Alloc((nuint)newLength, (nuint)Unsafe.SizeOf<T>());
+
         if (_tail >= _head)
         {
             Buffer.MemoryCopy(_pElems, pElemsNew, (_head + 1) * Unsafe.SizeOf<T>(), (_head + 1) * Unsafe.SizeOf<T>());
 
             if (_tail < _bufferLength - 1)
             {
-                Buffer.MemoryCopy(_pElems + _tail + 1, pElemsNew + _tail + 1 + _bufferLength, newLength * Unsafe.SizeOf<T>(), (_bufferLength - (_tail + 1)) * Unsafe.SizeOf<T>());
+                Buffer.MemoryCopy(_pElems + _tail + 1, pElemsNew + _tail + 1 + _bufferLength, (newLength - (_tail + 1 + _bufferLength)) * Unsafe.SizeOf<T>(), (_bufferLength - (_tail + 1)) * Unsafe.SizeOf<T>());
             }
 
             _tail += _bufferLength;
         }
         else
         {
-            Buffer.MemoryCopy(_pElems + _tail + 1, pElemsNew + _tail + 1, newLength * Unsafe.SizeOf<T>(), (_head + 1 - (_tail + 1)) * Unsafe.SizeOf<T>());
+            Buffer.MemoryCopy(_pElems + _tail + 1, pElemsNew + _tail + 1, (newLength - (_tail + 1)) * Unsafe.SizeOf<T>(), (_head + 1 - (_tail + 1)) * Unsafe.SizeOf<T>());
         }
+
         NativeMemory.Free(_pElems);
         _pElems = pElemsNew;
         _bufferLength = newLength;
@@ -97,7 +99,7 @@ internal unsafe class NativeQueue<T> : IDisposable where T : unmanaged
         }
 
         value = _pElems[_head];
-        _head = (_head - 1) % _bufferLength;
+        _head = ModuloPositive((_head - 1), _bufferLength);
         _length--;
 
         return true;

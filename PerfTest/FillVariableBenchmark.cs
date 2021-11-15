@@ -11,6 +11,7 @@ namespace PerfTest
         public string LengthRented { get; private set; } = "";
         private ISuballocator<T> _suballocator;
         private Random _random;
+        private int _seed;
         private int _maxLen;
 
         public FillVariableBenchmark(ISuballocator<T> suballocator, int seed, int maxLen)
@@ -18,12 +19,14 @@ namespace PerfTest
             Allocator = suballocator.GetType().Name;
             Size = suballocator.SizeTotal.ToString("N0");
             _suballocator = suballocator;
+            _seed = seed;
             _random = new Random(seed);
             _maxLen = maxLen;
         }
 
         public unsafe override void PrepareIteration()
         {
+            _random = new Random(_seed);
             _suballocator.Clear();
         }
 

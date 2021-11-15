@@ -113,7 +113,7 @@ public unsafe sealed class SequentialFitSuballocator<T> : ISuballocator<T>, IDis
             {
                 var temp = _indexQueue;
                 _indexQueue = _futureQueue;
-                _futureQueue = _indexQueue;
+                _futureQueue = temp;
                 swaps++;
 
                 if (swaps == 2)
@@ -139,6 +139,7 @@ public unsafe sealed class SequentialFitSuballocator<T> : ISuballocator<T>, IDis
                     _allocatedIndexes[nextIndexEntry.Index] == false)
                 {
                     _indexQueue.Dequeue();
+                    indexCount--;
 
                     indexEntry = indexEntry with { Length = indexEntry.Length + nextIndexEntry.Length };
                 }
@@ -166,9 +167,9 @@ public unsafe sealed class SequentialFitSuballocator<T> : ISuballocator<T>, IDis
                     _futureQueue.EnqueueHead(indexEntry);
                 }
             }
-
-            throw new OutOfMemoryException();
         }
+
+        throw new OutOfMemoryException();
     }
 
     private unsafe void Free(long index, long length)
