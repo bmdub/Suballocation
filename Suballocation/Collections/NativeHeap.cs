@@ -50,9 +50,23 @@ internal unsafe class NativeHeap<T> : IDisposable where T : unmanaged
 
     public T Dequeue()
     {
-        if (_tail == 0) throw new InvalidOperationException("Heap has 0 elements.");
+        if (TryDequeue(out var value) == false)
+        {
+            throw new InvalidOperationException("Heap has 0 elements.");
+        }
 
-        var value = _pElems[0];
+        return value;
+    }
+
+    public bool TryDequeue(out T value)
+    {
+        if (_tail == 0)
+        {
+            value = default;
+            return false;
+        }
+
+        value = _pElems[0];
 
         _tail--;
 
@@ -93,14 +107,30 @@ internal unsafe class NativeHeap<T> : IDisposable where T : unmanaged
             }
         }
 
-        return value;
+        return true;
     }
 
     public T Peek()
     {
-        if (_tail == 0) throw new InvalidOperationException("Heap has 0 elements.");
+        if (TryPeek(out var value) == false)
+        {
+            throw new InvalidOperationException("Heap has 0 elements.");
+        }
 
-        return _pElems[0];
+        return value;
+    }
+
+    public bool TryPeek(out T item)
+    {
+        if (_tail == 0)
+        {
+            item = default;
+            return false;
+        }
+
+        item = _pElems[0];
+
+        return true;
     }
 
     public void Clear()

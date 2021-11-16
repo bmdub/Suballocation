@@ -8,8 +8,8 @@ namespace Suballocation;
 
 public unsafe class LocalBuddySuballocator<T> : ISuballocator<T>, IDisposable where T : unmanaged
 {
-    private static readonly Comparer<BlockHeader> _headerStartComparer;
-    private static readonly Comparer<BlockHeader> _headerEndComparer;
+    private static readonly Comparer<BlockHeader> _nextElementComparer;
+    private static readonly Comparer<BlockHeader> _prevElementComparer;
 
     public long MinBlockLength;
     private readonly MemoryHandle _memoryHandle;
@@ -27,8 +27,8 @@ public unsafe class LocalBuddySuballocator<T> : ISuballocator<T>, IDisposable wh
 
     static LocalBuddySuballocator()
     {
-        _headerStartComparer = Comparer<BlockHeader>.Create((a, b) => a.Index.CompareTo(b.Index));
-        _headerEndComparer = Comparer<BlockHeader>.Create((a, b) => (a.Index + a.BlockLength).CompareTo(b.Index + b.BlockLength));
+        _nextElementComparer = Comparer<BlockHeader>.Create((a, b) => a.Index.CompareTo(b.Index));
+        _prevElementComparer = Comparer<BlockHeader>.Create((a, b) => (b.Index + b.BlockLength).CompareTo(a.Index + a.BlockLength));
     }
 
     public LocalBuddySuballocator(long length, long minBlockLength = 1)
@@ -97,8 +97,8 @@ public unsafe class LocalBuddySuballocator<T> : ISuballocator<T>, IDisposable wh
 
         for (int i = 0; i < blockLengthLog; i++)
         {
-            _freeBlocksPrev[i] = new NativeHeap<BlockHeader>(comparer: _headerEndComparer);
-            _freeBlocksNext[i] = new NativeHeap<BlockHeader>(comparer: _headerStartComparer);
+            _freeBlocksPrev[i] = new NativeHeap<BlockHeader>(comparer: _prevElementComparer);
+            _freeBlocksNext[i] = new NativeHeap<BlockHeader>(comparer: _nextElementComparer);
         }
 
         InitBlocks();
@@ -127,7 +127,7 @@ public unsafe class LocalBuddySuballocator<T> : ISuballocator<T>, IDisposable wh
     {
         if (_disposed) throw new ObjectDisposedException(nameof(LocalBuddySuballocator<T>));
 
-        Free(segment.PElems - _pElems, segment.Length / MinBlockLength);
+        Free(segment.PElems - _pElems, segment.Length);
     }
 
     public NativeMemorySegment<T> Rent(long length = 1)
@@ -144,7 +144,7 @@ public unsafe class LocalBuddySuballocator<T> : ISuballocator<T>, IDisposable wh
     {
         if (_disposed) throw new ObjectDisposedException(nameof(LocalBuddySuballocator<T>));
 
-        Free(segment.PElems - _pElems, segment.Length / MinBlockLength);
+        Free(segment.PElems - _pElems, segment.Length);
     }
 
     private unsafe (long Index, long Length) Alloc(long length)
@@ -156,18 +156,19 @@ public unsafe class LocalBuddySuballocator<T> : ISuballocator<T>, IDisposable wh
 
         int minFreeBlockIndex = BitOperations.Log2((ulong)blockLength);
 
-        long mask = ~((1 << minFreeBlockIndex) - 1);
+        long maskEqualLarger = ~((1 << minFreeBlockIndex) - 1);
+        long maskSmaller = ~maskEqualLarger;
 
-        long matchingBlockLengthsPrev = mask & _freeBlockFlagsPrev;
-        long matchingBlockLengthsNext = mask & _freeBlockFlagsNext;
+        long matchingBlockLengthsPrev = maskEqualLarger & _freeBlockFlagsPrev;
+        long matchingBlockLengthsNext = maskEqualLarger & _freeBlockFlagsNext;
         long matchingBlockLengthsBoth = matchingBlockLengthsPrev | matchingBlockLengthsNext;
 
-        // If no space left, check the smaller free blocks nearby, see if they can be combined.
-        long allBlockLengths = _freeBlockFlagsPrev | _freeBlockFlagsNext;
+        // If no space left, check the smaller free blocks that are nearby, see if they can be combined.
+        long smallerBlockLengths = (_freeBlockFlagsPrev | _freeBlockFlagsNext) & maskSmaller;
 
-        while (matchingBlockLengthsBoth == 0)
+        /*while (matchingBlockLengthsBoth == 0)
         {
-            int smallerBlockIndex = BitOperations.TrailingZeroCount((ulong)allBlockLengths);
+            int smallerBlockIndex = BitOperations.TrailingZeroCount((ulong)smallerBlockLengths);
 
             if (smallerBlockIndex == 64)
             {
@@ -212,37 +213,37 @@ public unsafe class LocalBuddySuballocator<T> : ISuballocator<T>, IDisposable wh
                 _freeBlockFlagsPrev |= (1L << smallerBlockIndex);
             }
 
-            allBlockLengths >>= smallerBlockIndex + 1;
+            smallerBlockLengths &= ~(1L << smallerBlockIndex);
 
-            matchingBlockLengthsPrev = mask & _freeBlockFlagsPrev;
-            matchingBlockLengthsNext = mask & _freeBlockFlagsNext;
+            matchingBlockLengthsPrev = maskEqualLarger & _freeBlockFlagsPrev;
+            matchingBlockLengthsNext = maskEqualLarger & _freeBlockFlagsNext;
             matchingBlockLengthsBoth = matchingBlockLengthsPrev | matchingBlockLengthsNext;
         }
 
         // If still no space left, look through ALL free blocks and try to combine them.
-        allBlockLengths = _freeBlockFlagsPrev | _freeBlockFlagsNext;
+        long allBlockLengths = _freeBlockFlagsPrev | _freeBlockFlagsNext;
 
         while (matchingBlockLengthsBoth == 0)
         {
-            int smallerBlockIndex = BitOperations.TrailingZeroCount((ulong)allBlockLengths);
+            int blockIndex = BitOperations.TrailingZeroCount((ulong)allBlockLengths);
 
-            if (smallerBlockIndex == 64)
+            if (blockIndex == 64)
             {
                 break;
             }
 
-            if (_freeBlocksNext[smallerBlockIndex].Length > 0)
+            if (_freeBlocksNext[blockIndex].Length > 0)
             {
-                var header1 = _freeBlocksNext[smallerBlockIndex].Dequeue();
+                var header1 = _freeBlocksNext[blockIndex].Dequeue();
 
-                while (_freeBlocksNext[smallerBlockIndex].Length > 0)
+                while (_freeBlocksNext[blockIndex].Length > 0)
                 {
-                    var header2 = _freeBlocksNext[smallerBlockIndex].Dequeue();
+                    var header2 = _freeBlocksNext[blockIndex].Dequeue();
 
                     if (header2.Index != header1.Index + header1.BlockLength)
                     {
-                        _freeBlocksPrev[smallerBlockIndex].Enqueue(header1);
-                        _freeBlockFlagsPrev |= (1L << smallerBlockIndex);
+                        _freeBlocksPrev[blockIndex].Enqueue(header1);
+                        _freeBlockFlagsPrev |= (1L << blockIndex);
                         header1 = header2;
                         break;
                     }
@@ -250,27 +251,27 @@ public unsafe class LocalBuddySuballocator<T> : ISuballocator<T>, IDisposable wh
                     header1 = header1 with { BlockLength = header1.BlockLength + header2.BlockLength };
                 }
 
-                _freeBlocksPrev[smallerBlockIndex].Enqueue(header1);
-                _freeBlockFlagsPrev |= (1L << smallerBlockIndex);
+                _freeBlocksPrev[blockIndex].Enqueue(header1);
+                _freeBlockFlagsPrev |= (1L << blockIndex);
 
-                if (_freeBlocksNext[smallerBlockIndex].Length == 0)
+                if (_freeBlocksNext[blockIndex].Length == 0)
                 {
-                    _freeBlockFlagsNext &= ~(1L << smallerBlockIndex);
+                    _freeBlockFlagsNext &= ~(1L << blockIndex);
                 }
             }
 
-            if (_freeBlocksPrev[smallerBlockIndex].Length > 0)
+            if (_freeBlocksPrev[blockIndex].Length > 0)
             {
-                var header1 = _freeBlocksPrev[smallerBlockIndex].Dequeue();
+                var header1 = _freeBlocksPrev[blockIndex].Dequeue();
 
-                while (_freeBlocksPrev[smallerBlockIndex].Length > 0)
+                while (_freeBlocksPrev[blockIndex].Length > 0)
                 {
-                    var header2 = _freeBlocksPrev[smallerBlockIndex].Dequeue();
+                    var header2 = _freeBlocksPrev[blockIndex].Dequeue();
 
                     if (header2.Index + header2.BlockLength != header1.Index)
                     {
-                        _freeBlocksNext[smallerBlockIndex].Enqueue(header1);
-                        _freeBlockFlagsNext |= (1L << smallerBlockIndex);
+                        _freeBlocksNext[blockIndex].Enqueue(header1);
+                        _freeBlockFlagsNext |= (1L << blockIndex);
                         header1 = header2;
                         break;
                     }
@@ -278,34 +279,35 @@ public unsafe class LocalBuddySuballocator<T> : ISuballocator<T>, IDisposable wh
                     header1 = header2 with { BlockLength = header1.BlockLength + header2.BlockLength };
                 }
 
-                _freeBlocksNext[smallerBlockIndex].Enqueue(header1);
-                _freeBlockFlagsNext |= (1L << smallerBlockIndex);
+                _freeBlocksNext[blockIndex].Enqueue(header1);
+                _freeBlockFlagsNext |= (1L << blockIndex);
 
-                if (_freeBlocksPrev[smallerBlockIndex].Length == 0)
+                if (_freeBlocksPrev[blockIndex].Length == 0)
                 {
-                    _freeBlockFlagsPrev &= ~(1L << smallerBlockIndex);
+                    _freeBlockFlagsPrev &= ~(1L << blockIndex);
                 }
             }
 
-            allBlockLengths >>= smallerBlockIndex + 1;
+            allBlockLengths &= ~(1L << blockIndex);
 
-            matchingBlockLengthsPrev = mask & _freeBlockFlagsPrev;
-            matchingBlockLengthsNext = mask & _freeBlockFlagsNext;
+            matchingBlockLengthsPrev = maskEqualLarger & _freeBlockFlagsPrev;
+            matchingBlockLengthsNext = maskEqualLarger & _freeBlockFlagsNext;
             matchingBlockLengthsBoth = matchingBlockLengthsPrev | matchingBlockLengthsNext;
         }
 
         if (matchingBlockLengthsBoth == 0)
         {
             throw new OutOfMemoryException();
-        }
+        }*/
 
+        //
+        /*
         int freeBlockIndexNext = BitOperations.TrailingZeroCount((ulong)matchingBlockLengthsNext);
         long distanceNext = freeBlockIndexNext >= 64 ? long.MaxValue : Math.Abs(_freeBlocksNext[freeBlockIndexNext].Peek().Index - _lastWriteIndex);
 
         int freeBlockIndexPrev = BitOperations.TrailingZeroCount((ulong)matchingBlockLengthsPrev);
         long distancePrev = freeBlockIndexPrev >= 64 ? long.MaxValue : Math.Abs(_freeBlocksPrev[freeBlockIndexPrev].Peek().Index - _lastWriteIndex);
 
-        // Choose the side with 
         long matchingBlockLengths = matchingBlockLengthsNext;
         ref long freeBlockFlags = ref _freeBlockFlagsNext;
         var freeBlocks = _freeBlocksNext;
@@ -321,22 +323,131 @@ public unsafe class LocalBuddySuballocator<T> : ISuballocator<T>, IDisposable wh
             freeBlockFlags = ref _freeBlockFlagsPrev;
             freeBlocks = _freeBlocksPrev;
             freeBlocksOther = _freeBlocksNext;
-        }
+        }*/
 
-        int freeBlockIndex = BitOperations.TrailingZeroCount((ulong)matchingBlockLengths);
+        ref long freeBlockFlags = ref _freeBlockFlagsNext;
+        var freeBlocks = _freeBlocksNext;
+        var freeBlocksOther = _freeBlocksPrev;
+        int freeBlockIndex = -1;
+
+        long minDistance = long.MaxValue;
+
+        long allBlockLengths = _freeBlockFlagsPrev | _freeBlockFlagsNext;
+
+        for (; ; )
+        {
+            int blockIndex = BitOperations.TrailingZeroCount((ulong)allBlockLengths);
+
+            if (blockIndex == 64)
+            {
+                break;
+            }
+
+            while (_freeBlocksNext[blockIndex].TryPeek(out var moveHeader) && moveHeader.Index < _lastWriteIndex)
+            {
+                _freeBlocksPrev[blockIndex].Enqueue(_freeBlocksNext[blockIndex].Dequeue());
+                _freeBlockFlagsPrev |= (1L << blockIndex);
+
+                if (_freeBlocksNext[blockIndex].Length == 0)
+                {
+                    _freeBlockFlagsNext &= ~(1L << blockIndex);
+                }
+            }
+
+            while (_freeBlocksPrev[blockIndex].TryPeek(out var moveHeader2) && moveHeader2.Index > _lastWriteIndex)
+            {
+                _freeBlocksNext[blockIndex].Enqueue(_freeBlocksPrev[blockIndex].Dequeue());
+                _freeBlockFlagsNext |= (1L << blockIndex);
+
+                if (_freeBlocksPrev[blockIndex].Length == 0)
+                {
+                    _freeBlockFlagsPrev &= ~(1L << blockIndex);
+                }
+            }
+
+            if (_freeBlocksNext[blockIndex].TryDequeue(out var candHeader))
+            {
+                while (_freeBlocksNext[blockIndex].TryPeek(out var otherHeader) && otherHeader.Index == candHeader.Index + candHeader.BlockLength)
+                {
+                    _freeBlocksNext[blockIndex].Dequeue();
+
+                    candHeader = candHeader with { BlockLength = candHeader.BlockLength + otherHeader.BlockLength };
+                }
+
+                var newBlockIndex = BitOperations.Log2((ulong)candHeader.BlockLength);
+
+                _freeBlocksNext[newBlockIndex].Enqueue(candHeader);
+
+                if (newBlockIndex != blockIndex)
+                {
+                    _freeBlockFlagsNext |= (1L << newBlockIndex);
+
+                    if (_freeBlocksNext[blockIndex].Length == 0)
+                    {
+                        _freeBlockFlagsNext &= ~(1L << blockIndex);
+                    }
+                }
+                else
+                {
+                    var distance = Math.Abs(candHeader.Index + candHeader.BlockLength - _lastWriteIndex);
+
+                    if (distance < minDistance && candHeader.BlockLength >= length)
+                    {
+                        minDistance = distance;
+
+                        freeBlockFlags = ref _freeBlockFlagsNext;
+                        freeBlocks = _freeBlocksNext;
+                        freeBlocksOther = _freeBlocksPrev;
+                        freeBlockIndex = newBlockIndex;
+                    }
+                }
+            }
+
+            if (_freeBlocksPrev[blockIndex].TryDequeue(out var candHeader2))
+            {
+                while (_freeBlocksPrev[blockIndex].TryPeek(out var otherHeader) && otherHeader.Index + otherHeader.BlockLength == candHeader2.Index)
+                {
+                    _freeBlocksPrev[blockIndex].Dequeue();
+
+                    candHeader2 = candHeader2 with { Index = otherHeader.Index, BlockLength = candHeader2.BlockLength + otherHeader.BlockLength };
+                }
+
+                var newBlockIndex = BitOperations.Log2((ulong)candHeader2.BlockLength);
+
+                _freeBlocksPrev[newBlockIndex].Enqueue(candHeader2);
+
+                if (newBlockIndex != blockIndex)
+                {
+                    _freeBlockFlagsPrev |= (1L << newBlockIndex);
+
+                    if (_freeBlocksPrev[blockIndex].Length == 0)
+                    {
+                        _freeBlockFlagsPrev &= ~(1L << blockIndex);
+                    }
+                }
+                else
+                {
+                    var distance = Math.Abs(candHeader2.Index - _lastWriteIndex);
+
+                    if (distance < minDistance && candHeader2.BlockLength >= length)
+                    {
+                        minDistance = distance;
+
+                        freeBlockFlags = ref _freeBlockFlagsPrev;
+                        freeBlocks = _freeBlocksPrev;
+                        freeBlocksOther = _freeBlocksNext;
+                        freeBlockIndex = newBlockIndex;
+                    }
+                }
+            }
+
+            allBlockLengths &= ~(1L << blockIndex);
+        }
 
         var header = freeBlocks[freeBlockIndex].Dequeue();
 
-        // Choose the closest index to the last write, pushing the others to the other queue.
-        while (freeBlocks[freeBlockIndex].Length > 0 && Math.Abs(freeBlocks[freeBlockIndex].Peek().Index - _lastWriteIndex) < Math.Abs(header.Index - _lastWriteIndex))
-        {
-            freeBlocksOther[freeBlockIndex].Enqueue(header);
-
-            header = freeBlocks[freeBlockIndex].Dequeue();
-        }
-
         // Combine any free buddies we see while we're here.
-        if (freeBlocks == _freeBlocksNext)
+        /*if (freeBlocks == _freeBlocksNext)
         {
             while (freeBlocks[freeBlockIndex].Length > 0)
             {
@@ -367,7 +478,7 @@ public unsafe class LocalBuddySuballocator<T> : ISuballocator<T>, IDisposable wh
 
                 header = header with { Index = header2.Index, BlockLength = blockLength + header2.BlockLength };
             }
-        }
+        }*/
 
         if (freeBlocks[freeBlockIndex].Length == 0)
         {

@@ -46,7 +46,7 @@ namespace PerfTest
             long windowSpreadAvg = 0;
             long windowCountAvg = 0;
             long windowSamples = 0;
-            var updateWindowTracker = new UpdateWindowTracker1<T>(.1);// Math.BitDecrement(1.0));
+            var updateWindowTracker = new UpdateWindowTracker1<T>(0);// Math.BitDecrement(1.0));
 
             try
             {
@@ -59,9 +59,9 @@ namespace PerfTest
                     segments.Add(seg);
                 }
 
-                for (int i = 0; i < _suballocator.LengthTotal * .1; i++)
+                while (lengthRented < _suballocator.LengthTotal * 4)
                 {
-                    if (_random.Next(0, 2) == 0)
+                    if (_random.Next(0, 100) == 0)
                     {
                         var lengthToRent = _random.Next(1, _maxLen + 1);
                         var seg = _suballocator.Rent(lengthToRent);
@@ -70,7 +70,7 @@ namespace PerfTest
                         segments.Add(seg);
                         updateWindowTracker.Register(seg);
 
-                        if (i % 1 == 0)
+                        if (lengthRented % 10 == 0)
                         {
                             var updateWindows = updateWindowTracker.BuildUpdateWindows();
                             updateWindowTracker.Clear();
@@ -103,7 +103,7 @@ namespace PerfTest
                             Console.WriteLine();
                         }
                     }
-                    else
+                    else if(segments.Count > 1)
                     {
                         var swapIndex = _random.Next(0, segments.Count);
                         var returnSeg = segments[swapIndex];
@@ -114,7 +114,7 @@ namespace PerfTest
                     }
                 }
             }
-            catch (Exception)
+            catch (NotImplementedException)
             {
                 lengthRentedActual = 0;
             }
