@@ -1,4 +1,5 @@
-﻿using System.Runtime.CompilerServices;
+﻿using System.Numerics;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace Suballocation.Collections;
@@ -35,14 +36,15 @@ internal unsafe class NativeHeap<T> : IDisposable where T : unmanaged
         _pElems[_tail] = elem;
 
         long index = _tail;
-        long parentIndex = index - 1 >> 1;
+        long parentIndex = (index - 1) >> 1;
         while (parentIndex >= 0 && _comparer.Compare(_pElems[parentIndex], _pElems[index]) > 0)
         {
+            //var temp = _pElems[parentIndex];
             _pElems[index] = _pElems[parentIndex];
             _pElems[parentIndex] = elem;
 
             index = parentIndex;
-            parentIndex = index - 1 >> 1;
+            parentIndex = (index - 1) >> 1;
         }
 
         _tail++;
@@ -77,8 +79,8 @@ internal unsafe class NativeHeap<T> : IDisposable where T : unmanaged
             long index = 0;
             for (; ; )
             {
-                long childIndex1 = (index << 2) + 1;
-                long childIndex2 = (index << 2) + 2;
+                long childIndex1 = (index << 1) + 1;
+                long childIndex2 = (index << 1) + 2;
 
                 if (childIndex2 >= _tail)
                 {
@@ -106,6 +108,26 @@ internal unsafe class NativeHeap<T> : IDisposable where T : unmanaged
                 }
             }
         }
+        /*for (int i = 1; i < _tail; i++)
+        {
+            int child = i;
+
+            if (_comparer.Compare(_pElems[child], value) == 0)
+            {
+                var t1 = _pElems[child];
+            }
+        }*/
+        /*for (int i = 1; i < _tail; i++)
+        {
+            int child = i;
+            int parent = (i - 1) >> 1;
+
+            if (_comparer.Compare(_pElems[child], _pElems[parent]) <= 0)
+            {
+                var t1 = _pElems[child];
+                var t2 = _pElems[parent];
+            }
+        }*/
 
         return true;
     }
@@ -131,6 +153,14 @@ internal unsafe class NativeHeap<T> : IDisposable where T : unmanaged
         item = _pElems[0];
 
         return true;
+    }
+
+    public List<T> Dump()
+    {
+        List<T> elems = new List<T>();
+        for (int i = 0; i < _tail; i++)
+            elems.Add(_pElems[i]);
+        return elems;
     }
 
     public void Clear()

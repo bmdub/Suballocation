@@ -13,23 +13,28 @@ namespace PerfTest
     {
         public string Allocator { get; init; }
         public string Size { get; init; }
+        public string RentalCount { get; private set; } = "";
         public string LengthRented { get; private set; } = "";
         public string LengthRentedActual { get; private set; } = "";
+        public string WindowTotalLengthAvg { get; private set; } = "";
+        public string WindowSpreadMax { get; private set; } = "";
         public string WindowSpreadAvg { get; private set; } = "";
         public string WindowCountAvg { get; private set; } = "";
         private ISuballocator<T> _suballocator;
         private Random _random;
         private int _seed;
-        private int _maxLen;
+        private int _minSegmentLen;
+        private int _maxSegmentLen;
 
-        public RandomBenchmark(ISuballocator<T> suballocator, int seed, int maxLen)
+        public RandomBenchmark(ISuballocator<T> suballocator, int seed, int minSegmentLen, int maxSegmentLen)
         {
             Allocator = suballocator.GetType().Name;
             Size = suballocator.SizeTotal.ToString("N0");
             _suballocator = suballocator;
             _seed = seed;
             _random = new Random(seed);
-            _maxLen = maxLen;
+            _minSegmentLen = minSegmentLen;
+            _maxSegmentLen = maxSegmentLen;
         }
 
         public unsafe override void PrepareIteration()
@@ -41,30 +46,35 @@ namespace PerfTest
         public unsafe override void RunIteration()
         {
             List<NativeMemorySegment<T>> segments = new List<NativeMemorySegment<T>>((int)_suballocator.LengthTotal);
+            long rentalCount = 0;
             long lengthRented = 0;
             long lengthRentedActual = 0;
+            long windowTotalLengthAvg = 0;
+            long windowSpreadMax = 0;
             long windowSpreadAvg = 0;
             long windowCountAvg = 0;
             long windowSamples = 0;
-            var updateWindowTracker = new UpdateWindowTracker1<T>(0);// Math.BitDecrement(1.0));
+            bool oom = false;
+            var updateWindowTracker = new UpdateWindowTracker1<T>(.55);// Math.BitDecrement(1.0));
 
             try
             {
-                while (lengthRented < _suballocator.LengthTotal / 4)
+                while (lengthRented < _suballocator.LengthTotal / 2)
                 {
-                    var lengthToRent = _random.Next(1, _maxLen + 1);
+                    var lengthToRent = _random.Next(_minSegmentLen, _maxSegmentLen + 1);
                     var seg = _suballocator.Rent(lengthToRent);
                     lengthRented += lengthToRent;
                     lengthRentedActual += seg.Length;
                     segments.Add(seg);
                 }
 
-                while (lengthRented < _suballocator.LengthTotal * 4)
+                while (lengthRented < _suballocator.LengthTotal * 20)
                 {
-                    if (_random.Next(0, 100) == 0)
+                    if (_random.Next(0, 2) == 0)
                     {
-                        var lengthToRent = _random.Next(1, _maxLen + 1);
+                        var lengthToRent = _random.Next(_minSegmentLen, _maxSegmentLen + 1);
                         var seg = _suballocator.Rent(lengthToRent);
+                        rentalCount++;
                         lengthRented += lengthToRent;
                         lengthRentedActual += seg.Length;
                         segments.Add(seg);
@@ -75,11 +85,13 @@ namespace PerfTest
                             var updateWindows = updateWindowTracker.BuildUpdateWindows();
                             updateWindowTracker.Clear();
 
+                            windowTotalLengthAvg += updateWindows.TotalLength;
+                            windowSpreadMax = Math.Max(windowSpreadMax, updateWindows.SpreadLength);
                             windowSpreadAvg += updateWindows.SpreadLength;
                             windowCountAvg += updateWindows.Windows.Count;
                             windowSamples++;
 
-                            int wCount = 0;
+                           /* int wCount = 0;
                             for (int j = 0; j < 150; j++)
                             {
                                 char c = ' ';
@@ -100,7 +112,7 @@ namespace PerfTest
 
                                 Console.Write(c);
                             }
-                            Console.WriteLine();
+                            Console.WriteLine();*/
                         }
                     }
                     else if(segments.Count > 1)
@@ -114,16 +126,19 @@ namespace PerfTest
                     }
                 }
             }
-            catch (NotImplementedException)
+            catch (OutOfMemoryException)
             {
-                lengthRentedActual = 0;
+                oom = true;
             }
 
+            RentalCount = rentalCount.ToString("N0") + (oom ? "(OOM)" : "");
             LengthRented = lengthRented.ToString("N0");
             LengthRentedActual = lengthRentedActual.ToString("N0");
 
             if (windowSamples > 0)
             {
+                WindowTotalLengthAvg = (windowTotalLengthAvg / windowSamples).ToString("N0");
+                WindowSpreadMax = windowSpreadMax.ToString("N0");
                 WindowSpreadAvg = (windowSpreadAvg / windowSamples).ToString("N0");
                 WindowCountAvg = (windowCountAvg / windowSamples).ToString("N0");
             }

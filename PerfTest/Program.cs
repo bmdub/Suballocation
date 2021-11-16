@@ -14,20 +14,19 @@ namespace PerfTest;
 // The larger an object is, the longer its lifetime will be.
 // The larger an object is, the larger the acceptable update window / placement distance.
 // Less fragmentation if segment is near similar-sized segments?
+// Larger objects near center will hurt locality
 
-//todo: update window(s)
+//todo:
+// change fixed stack allocator to variable one
+//  remove other stack allocator
+//  try block-based seq allocator in its place (then only need bit array). block headers?
+// sequential allocator faster with hash map? need to make a native one.
 // compaction
 // also option for full compaction?
 // consider segment updates, which will affect the update window. combine with compaction?
 // will starting capacities make better efficiency?
-// 2 stacks for left and right. on add seg, move windows between the two, finding the closest window or make a new window.
-//  combine windows if possible.
-// or, update current window and make new window if needed. merge at the end.
 
-// Generational
-
-
-// update window(s).  need segment graph to merge? best to merge on demand. just return list.
+// local alloc: use queues for some work, heap for returning
 
 
 // tests
@@ -59,14 +58,14 @@ public partial class Program
 
     static void Main(string[] args)
     {
-        long length = 1L << 20;
+        long length = 1L << 26;
 
-        Test<SomeStruct>(1, length, 256, 1);// (int)(length / 10000), 2);
+        Test<SomeStruct>(1, length, 1024, 65536 / 2, 16);// (int)(length / 10000), 2);
 
         Console.ReadKey();
     }
 
-    static void Test<T>(int iterations, long length, int maxSegLen, long blockLength) where T : unmanaged
+    static void Test<T>(int iterations, long length, int minSegLen, int maxSegLen, long blockLength) where T : unmanaged
     {
         Console.WriteLine($"Buffer Length: {length}");
 
@@ -114,9 +113,9 @@ public partial class Program
 		*/
 		results = new List<BenchmarkResult>()
         {
-            //new RandomBenchmark<T>(new SequentialFitSuballocator<T>(length), 0, maxSegLen).Run(iterations),
-            //new RandomBenchmark<T>(new BuddySuballocator<T>(length, blockLength), 0, maxSegLen).Run(iterations),
-            new RandomBenchmark<T>(new LocalBuddySuballocator<T>(length, blockLength), 0, maxSegLen).Run(iterations),
+            new RandomBenchmark<T>(new SequentialFitSuballocator<T>(length), 0, minSegLen, maxSegLen).Run(iterations),
+            new RandomBenchmark<T>(new BuddySuballocator<T>(length, blockLength), 0, minSegLen, maxSegLen).Run(iterations),
+            new RandomBenchmark<T>(new LocalBuddySuballocator<T>(length, blockLength), 0, minSegLen, maxSegLen).Run(iterations),
 			//new SequentialFillVariableBenchmark<T>(new ArrayPoolSuballocator<T>(length), 0, maxSegLen).Run(iterations),
 			//new SequentialFillVariableBenchmark<T>(new MemoryPoolSuballocator<T>(length), 0, maxSegLen).Run(iterations),
 		};

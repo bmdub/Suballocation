@@ -152,7 +152,6 @@ public unsafe class LocalBuddySuballocator<T> : ISuballocator<T>, IDisposable wh
             _freeBlocksNext.Enqueue(_freeBlocksPrev.Dequeue());
         }
 
-
         var distanceNext = long.MaxValue;
         var distancePrev = long.MaxValue;
 
@@ -175,13 +174,13 @@ public unsafe class LocalBuddySuballocator<T> : ISuballocator<T>, IDisposable wh
                     nextHeader = nextHeader with { BlockLength = nextHeader.BlockLength + otherHeaderNext.BlockLength };
                 }
 
-                if (nextHeader.BlockLength >= length)
+                if (nextHeader.BlockLength >= blockLength)
                 {
                     distanceNext = Math.Abs(nextHeader.Index - _lastWriteIndex);
                     _freeBlocksNext.Enqueue(nextHeader);
                 }
                 else
-                {
+                {               
                     siftQueueNext.Enqueue(nextHeader);
                 }
             }
@@ -195,15 +194,11 @@ public unsafe class LocalBuddySuballocator<T> : ISuballocator<T>, IDisposable wh
                     prevHeader = prevHeader with { Index = otherHeaderPrev.Index, BlockLength = prevHeader.BlockLength + otherHeaderPrev.BlockLength };
                 }
 
-                if (prevHeader.BlockLength >= length)
+                if (prevHeader.BlockLength >= blockLength)
                 {
                     distancePrev = Math.Abs(prevHeader.Index - _lastWriteIndex);
-                    if (prevHeader.Index == 1040508)
-                        Debugger.Break();
                     _freeBlocksPrev.Enqueue(prevHeader);
-                    var temp = _freeBlocksPrev.Peek().Index + _freeBlocksPrev.Peek().BlockLength;
-                    var temp2 = prevHeader.Index + prevHeader.BlockLength;
-                    Debug.Assert(prevHeader.Index == _freeBlocksPrev.Peek().Index);
+                    //Debug.Assert(prevHeader.Index == _freeBlocksPrev.Peek().Index);
                 }
                 else
                 {
@@ -212,7 +207,7 @@ public unsafe class LocalBuddySuballocator<T> : ISuballocator<T>, IDisposable wh
             }
         }
 
-        if (distanceNext < distancePrev && _freeBlocksNext.TryPeek(out var h) && h.BlockLength < length)
+        /*if (distanceNext < distancePrev && _freeBlocksNext.TryPeek(out var h) && h.BlockLength < length)
         {
             Debugger.Break();
         }
@@ -220,7 +215,7 @@ public unsafe class LocalBuddySuballocator<T> : ISuballocator<T>, IDisposable wh
         if (distancePrev < distanceNext && _freeBlocksPrev.TryPeek(out var h2) && h2.BlockLength < length)
         {
             Debugger.Break();
-        }
+        }*/
 
         if (distanceNext == long.MaxValue && distancePrev == long.MaxValue)
         {
@@ -286,10 +281,7 @@ public unsafe class LocalBuddySuballocator<T> : ISuballocator<T>, IDisposable wh
             }
         }
 
-        if (header.BlockLength < length)
-        {
-            Debugger.Break();
-        }
+        Debug.Assert(header.BlockLength * MinBlockLength >= length);
 
         Allocations++;
         BlocksUsed += header.BlockLength;
@@ -309,9 +301,7 @@ public unsafe class LocalBuddySuballocator<T> : ISuballocator<T>, IDisposable wh
         if (index < 0 || index >= _indexLength)
             throw new ArgumentOutOfRangeException(nameof(offset));
 
-        var freeBlockLengthLog = BitOperations.Log2((ulong)length);
-
-        var header = new BlockHeader() { Index = index, BlockLength = length };
+        var header = new BlockHeader() { Index = index, BlockLength = length / MinBlockLength };
 
         if (_freeBlocksNext.Length > 0 && index >= _freeBlocksNext.Peek().Index)
         {
@@ -334,6 +324,8 @@ public unsafe class LocalBuddySuballocator<T> : ISuballocator<T>, IDisposable wh
     {
         Allocations = 0;
         BlocksUsed = 0;
+        _lastWriteIndex = 0;
+        _lastLastWriteIndex = 0;
         _freeBlocksPrev.Clear();
         _freeBlocksNext.Clear();
 
