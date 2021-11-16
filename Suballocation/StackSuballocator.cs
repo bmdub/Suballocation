@@ -1,19 +1,17 @@
-﻿using Suballocation.Collections;
-using System.Buffers;
+﻿using System.Buffers;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace Suballocation;
 
-public unsafe sealed class StackSuballocator<T> : ISuballocator<T>, IDisposable where T : unmanaged
+public unsafe sealed class FixedStackSuballocator<T> : ISuballocator<T>, IDisposable where T : unmanaged
 {
     private readonly T* _pElems;
     private readonly MemoryHandle _memoryHandle;
     private readonly bool _privatelyOwned;
-    private readonly NativeStack<IndexEntry> _indexes = new();
     private bool _disposed;
 
-    public StackSuballocator(long length)
+    public FixedStackSuballocator(long length)
     {
         if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot allocate a backing buffer of size <= 0.");
 
@@ -21,11 +19,9 @@ public unsafe sealed class StackSuballocator<T> : ISuballocator<T>, IDisposable 
 
         _pElems = (T*)NativeMemory.Alloc((nuint)length, (nuint)Unsafe.SizeOf<T>());
         _privatelyOwned = true;
-
-        _indexes.Push(new IndexEntry() { Index = 0, Length = length });
     }
 
-    public StackSuballocator(T* pData, long length)
+    public FixedStackSuballocator(T* pData, long length)
     {
         if (pData == null) throw new ArgumentNullException(nameof(pData));
         if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot allocate a backing buffer of size <= 0.");
@@ -33,18 +29,14 @@ public unsafe sealed class StackSuballocator<T> : ISuballocator<T>, IDisposable 
         LengthTotal = length;
 
         _pElems = pData;
-
-        _indexes.Push(new IndexEntry() { Index = 0, Length = length });
     }
 
-    public StackSuballocator(Memory<T> data)
+    public FixedStackSuballocator(Memory<T> data)
     {
         LengthTotal = data.Length;
 
         _memoryHandle = data.Pin();
         _pElems = (T*)_memoryHandle.Pointer;
-
-        _indexes.Push(new IndexEntry() { Index = 0, Length = data.Length });
     }
 
     public long SizeUsed => LengthUsed * Unsafe.SizeOf<T>();
@@ -61,8 +53,8 @@ public unsafe sealed class StackSuballocator<T> : ISuballocator<T>, IDisposable 
 
     public NativeMemorySegmentResource<T> RentResource(long length = 1)
     {
-        if (_disposed) throw new ObjectDisposedException(nameof(StackSuballocator<T>));
-        if (length == 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot rent a segment of size 0.");
+        if (_disposed) throw new ObjectDisposedException(nameof(FixedStackSuballocator<T>));
+        if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length), $"Segment length must be >= 1.");
 
         var rawSegment = Alloc(length);
 
@@ -71,15 +63,15 @@ public unsafe sealed class StackSuballocator<T> : ISuballocator<T>, IDisposable 
 
     public void ReturnResource(NativeMemorySegmentResource<T> segment)
     {
-        if (_disposed) throw new ObjectDisposedException(nameof(StackSuballocator<T>));
+        if (_disposed) throw new ObjectDisposedException(nameof(FixedStackSuballocator<T>));
 
         Free(segment.PElems - _pElems, segment.Length);
     }
 
     public NativeMemorySegment<T> Rent(long length = 1)
     {
-        if (_disposed) throw new ObjectDisposedException(nameof(StackSuballocator<T>));
-        if (length == 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot rent a segment of size 0.");
+        if (_disposed) throw new ObjectDisposedException(nameof(FixedStackSuballocator<T>));
+        if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length), $"Segment length must be >= 1.");
 
         var rawSegment = Alloc(length);
 
@@ -88,7 +80,7 @@ public unsafe sealed class StackSuballocator<T> : ISuballocator<T>, IDisposable 
 
     public void Return(NativeMemorySegment<T> segment)
     {
-        if (_disposed) throw new ObjectDisposedException(nameof(StackSuballocator<T>));
+        if (_disposed) throw new ObjectDisposedException(nameof(FixedStackSuballocator<T>));
 
         Free(segment.PElems - _pElems, segment.Length);
     }
@@ -100,35 +92,25 @@ public unsafe sealed class StackSuballocator<T> : ISuballocator<T>, IDisposable 
             throw new OutOfMemoryException();
         }
 
-        var indexEntry = new IndexEntry() { Index = LengthUsed, Length = length };
-
-        _indexes.Push(indexEntry);
+        long index = LengthUsed;
 
         Allocations++;
         LengthUsed += length;
 
-        return new(indexEntry.Index, indexEntry.Length);
+        return new(index, length);
     }
 
     private unsafe void Free(long index, long length)
     {
-        if (_indexes.TryPeek(out var topEntry) == false)
+        if (LengthUsed == 0)
         {
             throw new ArgumentException($"No rented segments found.");
         }
 
-        if (topEntry.Index != index)
+        if (index + length != LengthUsed)
         {
-            throw new ArgumentException($"Returned segment does not have the expected index ({topEntry.Index}).");
+            throw new ArgumentException($"Returned segment+length is not from the top of the stack.");
         }
-
-        if (topEntry.Length != length)
-        {
-            throw new ArgumentException($"Returned segment does not have expected length ({topEntry.Length:N0}).");
-        }
-
-        bool success = _indexes.TryPop(out _);
-        Debug.Assert(success, "Unable to pop from index stack.");
 
         Allocations--;
         LengthUsed -= length;
@@ -136,10 +118,8 @@ public unsafe sealed class StackSuballocator<T> : ISuballocator<T>, IDisposable 
 
     public void Clear()
     {
-        Allocations = 0;
         LengthUsed = 0;
-        _indexes.Clear();
-        _indexes.Push(new IndexEntry() { Index = 0, Length = LengthTotal });
+        Allocations = 0;
     }
 
     private void Dispose(bool disposing)
@@ -148,7 +128,7 @@ public unsafe sealed class StackSuballocator<T> : ISuballocator<T>, IDisposable 
         {
             if (disposing)
             {
-                _indexes.Dispose();
+                // TODO: dispose managed state (managed objects)
             }
 
             _memoryHandle.Dispose();
@@ -162,7 +142,7 @@ public unsafe sealed class StackSuballocator<T> : ISuballocator<T>, IDisposable 
         }
     }
 
-    ~StackSuballocator()
+    ~FixedStackSuballocator()
     {
         Dispose(disposing: false);
     }
@@ -171,14 +151,5 @@ public unsafe sealed class StackSuballocator<T> : ISuballocator<T>, IDisposable 
     {
         Dispose(disposing: true);
         GC.SuppressFinalize(this);
-    }
-
-    readonly struct IndexEntry
-    {
-        private readonly long _offset;
-        private readonly long _length;
-
-        public long Index { get => _offset; init => _offset = value; }
-        public long Length { get => _length; init => _length = value; }
     }
 }
