@@ -22,6 +22,7 @@ public unsafe class LocalBuddySuballocator<T> : ISuballocator<T>, IDisposable wh
     private long _freeBlockFlagsPrev;
     private long _freeBlockFlagsNext;
     private long _lastWriteIndex;
+    private long _lastLastWriteIndex;
     private bool _disposed;
 
     static LocalBuddySuballocator()
@@ -298,29 +299,23 @@ public unsafe class LocalBuddySuballocator<T> : ISuballocator<T>, IDisposable wh
             throw new OutOfMemoryException();
         }
 
-        /*long matchingBlockLengths = matchingBlockLengthsNext;
-        ref long freeBlockFlags = ref _freeBlockFlagsNext;
-        var freeBlocks = _freeBlocksNext;
-        var freeBlocksOther = _freeBlocksPrev;
-
         int freeBlockIndexNext = BitOperations.TrailingZeroCount((ulong)matchingBlockLengthsNext);
-        long distanceNext = freeBlockIndexNext >= 64 ? long.MaxValue : _freeBlocksNext[freeBlockIndexNext].Peek().Index;
-
-        if (freeBlockIndexNext >= 64)
-        var headerNext = _freeBlocksNext[freeBlockIndexNext].Peek();
+        long distanceNext = freeBlockIndexNext >= 64 ? long.MaxValue : Math.Abs(_freeBlocksNext[freeBlockIndexNext].Peek().Index - _lastWriteIndex);
 
         int freeBlockIndexPrev = BitOperations.TrailingZeroCount((ulong)matchingBlockLengthsPrev);
-        var headerPrev = _freeBlocksPrev[freeBlockIndexPrev].Peek();
-        */
+        long distancePrev = freeBlockIndexPrev >= 64 ? long.MaxValue : Math.Abs(_freeBlocksPrev[freeBlockIndexPrev].Peek().Index - _lastWriteIndex);
 
-
-        // Choose the side with the most free block sizes, as a heuristic
+        // Choose the side with 
         long matchingBlockLengths = matchingBlockLengthsNext;
         ref long freeBlockFlags = ref _freeBlockFlagsNext;
         var freeBlocks = _freeBlocksNext;
         var freeBlocksOther = _freeBlocksPrev;
 
-        if (BitOperations.PopCount((ulong)matchingBlockLengthsPrev) > BitOperations.PopCount((ulong)matchingBlockLengthsNext))
+        //if (BitOperations.PopCount((ulong)matchingBlockLengthsPrev) > BitOperations.PopCount((ulong)matchingBlockLengthsNext))
+        //if(distancePrev < distanceNext)
+        //if (freeBlockIndexPrev < freeBlockIndexNext)
+        //if(distancePrev != long.MaxValue && (_lastWriteIndex < _lastLastWriteIndex || distanceNext == long.MaxValue))
+        if(matchingBlockLengthsPrev != 0 && (_lastWriteIndex < _lastLastWriteIndex || distanceNext == long.MaxValue))
         {
             matchingBlockLengths = matchingBlockLengthsPrev;
             freeBlockFlags = ref _freeBlockFlagsPrev;
@@ -393,6 +388,7 @@ public unsafe class LocalBuddySuballocator<T> : ISuballocator<T>, IDisposable wh
         Allocations++;
         BlocksUsed += header.BlockLength;
 
+        _lastLastWriteIndex = _lastWriteIndex;
         _lastWriteIndex = header.Index + header.BlockLength;
 
         return (header.Index, header.BlockLength);

@@ -70,7 +70,7 @@ namespace PerfTest
                         segments.Add(seg);
                         updateWindowTracker.Register(seg);
 
-                        if (i % 100 == 0)
+                        if (i % 1 == 0)
                         {
                             var updateWindows = updateWindowTracker.BuildUpdateWindows();
                             updateWindowTracker.Clear();
