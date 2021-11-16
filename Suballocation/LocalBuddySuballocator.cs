@@ -15,12 +15,10 @@ public unsafe class LocalBuddySuballocator<T> : ISuballocator<T>, IDisposable wh
     private readonly MemoryHandle _memoryHandle;
     private readonly bool _privatelyOwned;
     private T* _pElems;
-    private NativeHeap<BlockHeader>[] _freeBlocksPrev = null!;
-    private NativeHeap<BlockHeader>[] _freeBlocksNext = null!;
+    private NativeHeap<BlockHeader> _freeBlocksPrev = null!;
+    private NativeHeap<BlockHeader> _freeBlocksNext = null!;
     private long _maxBlockLength;
     private long _indexLength;
-    private long _freeBlockFlagsPrev;
-    private long _freeBlockFlagsNext;
     private long _lastWriteIndex;
     private long _lastLastWriteIndex;
     private bool _disposed;
@@ -28,7 +26,7 @@ public unsafe class LocalBuddySuballocator<T> : ISuballocator<T>, IDisposable wh
     static LocalBuddySuballocator()
     {
         _nextElementComparer = Comparer<BlockHeader>.Create((a, b) => a.Index.CompareTo(b.Index));
-        _prevElementComparer = Comparer<BlockHeader>.Create((a, b) => (b.Index + b.BlockLength).CompareTo(a.Index + a.BlockLength));
+        _prevElementComparer = Comparer<BlockHeader>.Create((a, b) => b.Index.CompareTo(a.Index));
     }
 
     public LocalBuddySuballocator(long length, long minBlockLength = 1)
@@ -92,25 +90,15 @@ public unsafe class LocalBuddySuballocator<T> : ISuballocator<T>, IDisposable wh
         _maxBlockLength = (long)BitOperations.RoundUpToPowerOf2((ulong)_indexLength);
 
         var blockLengthLog = BitOperations.Log2((ulong)_indexLength) + 1;
-        _freeBlocksPrev = new NativeHeap<BlockHeader>[blockLengthLog];
-        _freeBlocksNext = new NativeHeap<BlockHeader>[blockLengthLog];
-
-        for (int i = 0; i < blockLengthLog; i++)
-        {
-            _freeBlocksPrev[i] = new NativeHeap<BlockHeader>(comparer: _prevElementComparer);
-            _freeBlocksNext[i] = new NativeHeap<BlockHeader>(comparer: _nextElementComparer);
-        }
+        _freeBlocksPrev = new NativeHeap<BlockHeader>(comparer: _prevElementComparer);
+        _freeBlocksNext = new NativeHeap<BlockHeader>(comparer: _nextElementComparer);
 
         InitBlocks();
     }
 
     private void InitBlocks()
     {
-        _freeBlockFlagsPrev = 0;
-        _freeBlockFlagsNext = 0;
-
-        _freeBlocksNext[^1].Enqueue(new BlockHeader() { Index = 0, BlockLength = _indexLength });
-        _freeBlockFlagsNext |= _indexLength;
+        _freeBlocksNext.Enqueue(new BlockHeader() { Index = 0, BlockLength = _indexLength });
     }
 
     public NativeMemorySegmentResource<T> RentResource(long length = 1)
@@ -154,346 +142,153 @@ public unsafe class LocalBuddySuballocator<T> : ISuballocator<T>, IDisposable wh
 
         long blockLength = Math.Max(1, (long)BitOperations.RoundUpToPowerOf2((ulong)length) >> BitOperations.Log2((ulong)MinBlockLength));
 
-        int minFreeBlockIndex = BitOperations.Log2((ulong)blockLength);
-
-        long maskEqualLarger = ~((1 << minFreeBlockIndex) - 1);
-        long maskSmaller = ~maskEqualLarger;
-
-        long matchingBlockLengthsPrev = maskEqualLarger & _freeBlockFlagsPrev;
-        long matchingBlockLengthsNext = maskEqualLarger & _freeBlockFlagsNext;
-        long matchingBlockLengthsBoth = matchingBlockLengthsPrev | matchingBlockLengthsNext;
-
-        // If no space left, check the smaller free blocks that are nearby, see if they can be combined.
-        long smallerBlockLengths = (_freeBlockFlagsPrev | _freeBlockFlagsNext) & maskSmaller;
-
-        /*while (matchingBlockLengthsBoth == 0)
+        while (_freeBlocksNext.TryPeek(out var moveHeaderNext) && moveHeaderNext.Index < _lastWriteIndex)
         {
-            int smallerBlockIndex = BitOperations.TrailingZeroCount((ulong)smallerBlockLengths);
+            _freeBlocksPrev.Enqueue(_freeBlocksNext.Dequeue());
+        }
 
-            if (smallerBlockIndex == 64)
+        while (_freeBlocksPrev.TryPeek(out var moveHeaderPrev) && moveHeaderPrev.Index > _lastWriteIndex)
+        {
+            _freeBlocksNext.Enqueue(_freeBlocksPrev.Dequeue());
+        }
+
+
+        var distanceNext = long.MaxValue;
+        var distancePrev = long.MaxValue;
+
+        Queue<BlockHeader> siftQueueNext = new Queue<BlockHeader>();
+        Queue<BlockHeader> siftQueuePrev = new Queue<BlockHeader>();
+
+        while (distanceNext == long.MaxValue && distancePrev == long.MaxValue)
+        {
+            if (_freeBlocksNext.Length == 0 && _freeBlocksPrev.Length == 0)
             {
                 break;
             }
 
-            while (_freeBlocksNext[smallerBlockIndex].Length > 1)
+            if (_freeBlocksNext.TryDequeue(out var nextHeader))
             {
-                var header1 = _freeBlocksNext[smallerBlockIndex].Dequeue();
-                var header2 = _freeBlocksNext[smallerBlockIndex].Peek();
-
-                if (header2.Index != header1.Index + header1.BlockLength)
+                while (_freeBlocksNext.TryPeek(out var otherHeaderNext) && otherHeaderNext.Index == nextHeader.Index + nextHeader.BlockLength)
                 {
-                    _freeBlocksNext[smallerBlockIndex].Enqueue(header1);
-                    break;
+                    _freeBlocksNext.Dequeue();
+
+                    nextHeader = nextHeader with { BlockLength = nextHeader.BlockLength + otherHeaderNext.BlockLength };
                 }
 
-                _freeBlocksNext[smallerBlockIndex].Dequeue();
-
-                header1 = header1 with { BlockLength = header1.BlockLength + header2.BlockLength };
-
-                _freeBlocksNext[smallerBlockIndex].Enqueue(header1);
-                _freeBlockFlagsNext |= (1L << smallerBlockIndex);
+                if (nextHeader.BlockLength >= length)
+                {
+                    distanceNext = Math.Abs(nextHeader.Index - _lastWriteIndex);
+                    _freeBlocksNext.Enqueue(nextHeader);
+                }
+                else
+                {
+                    siftQueueNext.Enqueue(nextHeader);
+                }
             }
 
-            while (_freeBlocksPrev[smallerBlockIndex].Length > 1)
+            if (_freeBlocksPrev.TryDequeue(out var prevHeader))
             {
-                var header1 = _freeBlocksPrev[smallerBlockIndex].Dequeue();
-                var header2 = _freeBlocksPrev[smallerBlockIndex].Peek();
-
-                if (header2.Index + header2.BlockLength != header1.Index)
+                while (_freeBlocksPrev.TryPeek(out var otherHeaderPrev) && otherHeaderPrev.Index + otherHeaderPrev.BlockLength == prevHeader.Index)
                 {
-                    _freeBlocksPrev[smallerBlockIndex].Enqueue(header1);
-                    break;
+                    _freeBlocksPrev.Dequeue();
+
+                    prevHeader = prevHeader with { Index = otherHeaderPrev.Index, BlockLength = prevHeader.BlockLength + otherHeaderPrev.BlockLength };
                 }
 
-                _freeBlocksPrev[smallerBlockIndex].Dequeue();
-
-                header1 = header2 with { BlockLength = header1.BlockLength + header2.BlockLength };
-
-                _freeBlocksPrev[smallerBlockIndex].Enqueue(header1);
-                _freeBlockFlagsPrev |= (1L << smallerBlockIndex);
+                if (prevHeader.BlockLength >= length)
+                {
+                    distancePrev = Math.Abs(prevHeader.Index - _lastWriteIndex);
+                    if (prevHeader.Index == 1040508)
+                        Debugger.Break();
+                    _freeBlocksPrev.Enqueue(prevHeader);
+                    var temp = _freeBlocksPrev.Peek().Index + _freeBlocksPrev.Peek().BlockLength;
+                    var temp2 = prevHeader.Index + prevHeader.BlockLength;
+                    Debug.Assert(prevHeader.Index == _freeBlocksPrev.Peek().Index);
+                }
+                else
+                {
+                    siftQueuePrev.Enqueue(prevHeader);
+                }
             }
-
-            smallerBlockLengths &= ~(1L << smallerBlockIndex);
-
-            matchingBlockLengthsPrev = maskEqualLarger & _freeBlockFlagsPrev;
-            matchingBlockLengthsNext = maskEqualLarger & _freeBlockFlagsNext;
-            matchingBlockLengthsBoth = matchingBlockLengthsPrev | matchingBlockLengthsNext;
         }
 
-        // If still no space left, look through ALL free blocks and try to combine them.
-        long allBlockLengths = _freeBlockFlagsPrev | _freeBlockFlagsNext;
-
-        while (matchingBlockLengthsBoth == 0)
+        if (distanceNext < distancePrev && _freeBlocksNext.TryPeek(out var h) && h.BlockLength < length)
         {
-            int blockIndex = BitOperations.TrailingZeroCount((ulong)allBlockLengths);
-
-            if (blockIndex == 64)
-            {
-                break;
-            }
-
-            if (_freeBlocksNext[blockIndex].Length > 0)
-            {
-                var header1 = _freeBlocksNext[blockIndex].Dequeue();
-
-                while (_freeBlocksNext[blockIndex].Length > 0)
-                {
-                    var header2 = _freeBlocksNext[blockIndex].Dequeue();
-
-                    if (header2.Index != header1.Index + header1.BlockLength)
-                    {
-                        _freeBlocksPrev[blockIndex].Enqueue(header1);
-                        _freeBlockFlagsPrev |= (1L << blockIndex);
-                        header1 = header2;
-                        break;
-                    }
-
-                    header1 = header1 with { BlockLength = header1.BlockLength + header2.BlockLength };
-                }
-
-                _freeBlocksPrev[blockIndex].Enqueue(header1);
-                _freeBlockFlagsPrev |= (1L << blockIndex);
-
-                if (_freeBlocksNext[blockIndex].Length == 0)
-                {
-                    _freeBlockFlagsNext &= ~(1L << blockIndex);
-                }
-            }
-
-            if (_freeBlocksPrev[blockIndex].Length > 0)
-            {
-                var header1 = _freeBlocksPrev[blockIndex].Dequeue();
-
-                while (_freeBlocksPrev[blockIndex].Length > 0)
-                {
-                    var header2 = _freeBlocksPrev[blockIndex].Dequeue();
-
-                    if (header2.Index + header2.BlockLength != header1.Index)
-                    {
-                        _freeBlocksNext[blockIndex].Enqueue(header1);
-                        _freeBlockFlagsNext |= (1L << blockIndex);
-                        header1 = header2;
-                        break;
-                    }
-
-                    header1 = header2 with { BlockLength = header1.BlockLength + header2.BlockLength };
-                }
-
-                _freeBlocksNext[blockIndex].Enqueue(header1);
-                _freeBlockFlagsNext |= (1L << blockIndex);
-
-                if (_freeBlocksPrev[blockIndex].Length == 0)
-                {
-                    _freeBlockFlagsPrev &= ~(1L << blockIndex);
-                }
-            }
-
-            allBlockLengths &= ~(1L << blockIndex);
-
-            matchingBlockLengthsPrev = maskEqualLarger & _freeBlockFlagsPrev;
-            matchingBlockLengthsNext = maskEqualLarger & _freeBlockFlagsNext;
-            matchingBlockLengthsBoth = matchingBlockLengthsPrev | matchingBlockLengthsNext;
+            Debugger.Break();
         }
 
-        if (matchingBlockLengthsBoth == 0)
+        if (distancePrev < distanceNext && _freeBlocksPrev.TryPeek(out var h2) && h2.BlockLength < length)
         {
+            Debugger.Break();
+        }
+
+        if (distanceNext == long.MaxValue && distancePrev == long.MaxValue)
+        {
+            foreach (var siftedHeader in siftQueueNext)
+            {
+                _freeBlocksNext.Enqueue(siftedHeader);
+            }
+
+            foreach (var siftedHeader in siftQueuePrev)
+            {
+                _freeBlocksPrev.Enqueue(siftedHeader);
+            }
+
             throw new OutOfMemoryException();
-        }*/
-
-        //
-        /*
-        int freeBlockIndexNext = BitOperations.TrailingZeroCount((ulong)matchingBlockLengthsNext);
-        long distanceNext = freeBlockIndexNext >= 64 ? long.MaxValue : Math.Abs(_freeBlocksNext[freeBlockIndexNext].Peek().Index - _lastWriteIndex);
-
-        int freeBlockIndexPrev = BitOperations.TrailingZeroCount((ulong)matchingBlockLengthsPrev);
-        long distancePrev = freeBlockIndexPrev >= 64 ? long.MaxValue : Math.Abs(_freeBlocksPrev[freeBlockIndexPrev].Peek().Index - _lastWriteIndex);
-
-        long matchingBlockLengths = matchingBlockLengthsNext;
-        ref long freeBlockFlags = ref _freeBlockFlagsNext;
-        var freeBlocks = _freeBlocksNext;
-        var freeBlocksOther = _freeBlocksPrev;
-
-        //if (BitOperations.PopCount((ulong)matchingBlockLengthsPrev) > BitOperations.PopCount((ulong)matchingBlockLengthsNext))
-        //if(distancePrev < distanceNext)
-        //if (freeBlockIndexPrev < freeBlockIndexNext)
-        //if(distancePrev != long.MaxValue && (_lastWriteIndex < _lastLastWriteIndex || distanceNext == long.MaxValue))
-        if(matchingBlockLengthsPrev != 0 && (_lastWriteIndex < _lastLastWriteIndex || distanceNext == long.MaxValue))
-        {
-            matchingBlockLengths = matchingBlockLengthsPrev;
-            freeBlockFlags = ref _freeBlockFlagsPrev;
-            freeBlocks = _freeBlocksPrev;
-            freeBlocksOther = _freeBlocksNext;
-        }*/
-
-        ref long freeBlockFlags = ref _freeBlockFlagsNext;
-        var freeBlocks = _freeBlocksNext;
-        var freeBlocksOther = _freeBlocksPrev;
-        int freeBlockIndex = -1;
-
-        long minDistance = long.MaxValue;
-
-        long allBlockLengths = _freeBlockFlagsPrev | _freeBlockFlagsNext;
-
-        for (; ; )
-        {
-            int blockIndex = BitOperations.TrailingZeroCount((ulong)allBlockLengths);
-
-            if (blockIndex == 64)
-            {
-                break;
-            }
-
-            while (_freeBlocksNext[blockIndex].TryPeek(out var moveHeader) && moveHeader.Index < _lastWriteIndex)
-            {
-                _freeBlocksPrev[blockIndex].Enqueue(_freeBlocksNext[blockIndex].Dequeue());
-                _freeBlockFlagsPrev |= (1L << blockIndex);
-
-                if (_freeBlocksNext[blockIndex].Length == 0)
-                {
-                    _freeBlockFlagsNext &= ~(1L << blockIndex);
-                }
-            }
-
-            while (_freeBlocksPrev[blockIndex].TryPeek(out var moveHeader2) && moveHeader2.Index > _lastWriteIndex)
-            {
-                _freeBlocksNext[blockIndex].Enqueue(_freeBlocksPrev[blockIndex].Dequeue());
-                _freeBlockFlagsNext |= (1L << blockIndex);
-
-                if (_freeBlocksPrev[blockIndex].Length == 0)
-                {
-                    _freeBlockFlagsPrev &= ~(1L << blockIndex);
-                }
-            }
-
-            if (_freeBlocksNext[blockIndex].TryDequeue(out var candHeader))
-            {
-                while (_freeBlocksNext[blockIndex].TryPeek(out var otherHeader) && otherHeader.Index == candHeader.Index + candHeader.BlockLength)
-                {
-                    _freeBlocksNext[blockIndex].Dequeue();
-
-                    candHeader = candHeader with { BlockLength = candHeader.BlockLength + otherHeader.BlockLength };
-                }
-
-                var newBlockIndex = BitOperations.Log2((ulong)candHeader.BlockLength);
-
-                _freeBlocksNext[newBlockIndex].Enqueue(candHeader);
-
-                if (newBlockIndex != blockIndex)
-                {
-                    _freeBlockFlagsNext |= (1L << newBlockIndex);
-
-                    if (_freeBlocksNext[blockIndex].Length == 0)
-                    {
-                        _freeBlockFlagsNext &= ~(1L << blockIndex);
-                    }
-                }
-                else
-                {
-                    var distance = Math.Abs(candHeader.Index + candHeader.BlockLength - _lastWriteIndex);
-
-                    if (distance < minDistance && candHeader.BlockLength >= length)
-                    {
-                        minDistance = distance;
-
-                        freeBlockFlags = ref _freeBlockFlagsNext;
-                        freeBlocks = _freeBlocksNext;
-                        freeBlocksOther = _freeBlocksPrev;
-                        freeBlockIndex = newBlockIndex;
-                    }
-                }
-            }
-
-            if (_freeBlocksPrev[blockIndex].TryDequeue(out var candHeader2))
-            {
-                while (_freeBlocksPrev[blockIndex].TryPeek(out var otherHeader) && otherHeader.Index + otherHeader.BlockLength == candHeader2.Index)
-                {
-                    _freeBlocksPrev[blockIndex].Dequeue();
-
-                    candHeader2 = candHeader2 with { Index = otherHeader.Index, BlockLength = candHeader2.BlockLength + otherHeader.BlockLength };
-                }
-
-                var newBlockIndex = BitOperations.Log2((ulong)candHeader2.BlockLength);
-
-                _freeBlocksPrev[newBlockIndex].Enqueue(candHeader2);
-
-                if (newBlockIndex != blockIndex)
-                {
-                    _freeBlockFlagsPrev |= (1L << newBlockIndex);
-
-                    if (_freeBlocksPrev[blockIndex].Length == 0)
-                    {
-                        _freeBlockFlagsPrev &= ~(1L << blockIndex);
-                    }
-                }
-                else
-                {
-                    var distance = Math.Abs(candHeader2.Index - _lastWriteIndex);
-
-                    if (distance < minDistance && candHeader2.BlockLength >= length)
-                    {
-                        minDistance = distance;
-
-                        freeBlockFlags = ref _freeBlockFlagsPrev;
-                        freeBlocks = _freeBlocksPrev;
-                        freeBlocksOther = _freeBlocksNext;
-                        freeBlockIndex = newBlockIndex;
-                    }
-                }
-            }
-
-            allBlockLengths &= ~(1L << blockIndex);
         }
 
-        var header = freeBlocks[freeBlockIndex].Dequeue();
+        BlockHeader header;
 
-        // Combine any free buddies we see while we're here.
-        /*if (freeBlocks == _freeBlocksNext)
+        if (distanceNext <= distancePrev)
         {
-            while (freeBlocks[freeBlockIndex].Length > 0)
+            header = _freeBlocksNext.Dequeue();
+
+            if (header.BlockLength > blockLength)
             {
-                var header2 = freeBlocks[freeBlockIndex].Peek();
+                // Split out blocks
+                var splitHeader = new BlockHeader() { Index = header.Index + blockLength, BlockLength = header.BlockLength - blockLength };
+                _freeBlocksNext.Enqueue(splitHeader);
 
-                if (header2.Index != header.Index + header.BlockLength)
-                {
-                    break;
-                }
+                header = header with { BlockLength = blockLength };
+            }
 
-                freeBlocks[freeBlockIndex].Dequeue();
+            foreach (var siftedHeader in siftQueueNext)
+            {
+                _freeBlocksPrev.Enqueue(siftedHeader);
+            }
 
-                header = header with { BlockLength = blockLength + header2.BlockLength };
+            foreach (var siftedHeader in siftQueuePrev)
+            {
+                _freeBlocksPrev.Enqueue(siftedHeader);
             }
         }
         else
         {
-            while (freeBlocks[freeBlockIndex].Length > 0)
+            header = _freeBlocksPrev.Dequeue();
+
+            if (header.BlockLength > blockLength)
             {
-                var header2 = freeBlocks[freeBlockIndex].Peek();
+                // Split out blocks
+                var splitHeader = new BlockHeader() { Index = header.Index, BlockLength = header.BlockLength - blockLength };
+                _freeBlocksPrev.Enqueue(splitHeader);
 
-                if (header2.Index + header2.BlockLength != header.Index)
-                {
-                    break;
-                }
-
-                freeBlocks[freeBlockIndex].Dequeue();
-
-                header = header with { Index = header2.Index, BlockLength = blockLength + header2.BlockLength };
+                header = header with { Index = header.Index + header.BlockLength - blockLength, BlockLength = blockLength };
             }
-        }*/
 
-        if (freeBlocks[freeBlockIndex].Length == 0)
-        {
-            freeBlockFlags &= ~(1L << freeBlockIndex);
+            foreach (var siftedHeader in siftQueuePrev)
+            {
+                _freeBlocksNext.Enqueue(siftedHeader);
+            }
+
+            foreach (var siftedHeader in siftQueueNext)
+            {
+                _freeBlocksNext.Enqueue(siftedHeader);
+            }
         }
 
-        if (header.BlockLength > blockLength)
+        if (header.BlockLength < length)
         {
-            // Split out blocks
-            var header2 = new BlockHeader() { Index = header.Index + blockLength, BlockLength = header.BlockLength - blockLength };
-            var freeBlockLengthLog = BitOperations.Log2((ulong)header2.BlockLength);
-            freeBlocks[freeBlockLengthLog].Enqueue(header2);
-            freeBlockFlags |= (1L << freeBlockLengthLog);
-
-            header = header with { BlockLength = blockLength };
+            Debugger.Break();
         }
 
         Allocations++;
@@ -518,20 +313,17 @@ public unsafe class LocalBuddySuballocator<T> : ISuballocator<T>, IDisposable wh
 
         var header = new BlockHeader() { Index = index, BlockLength = length };
 
-        if (_freeBlocksNext[freeBlockLengthLog].Length > 0 && index >= _freeBlocksNext[freeBlockLengthLog].Peek().Index)
+        if (_freeBlocksNext.Length > 0 && index >= _freeBlocksNext.Peek().Index)
         {
-            _freeBlocksNext[freeBlockLengthLog].Enqueue(header);
-            _freeBlockFlagsNext |= (1L << freeBlockLengthLog);
+            _freeBlocksNext.Enqueue(header);
         }
-        else if (_freeBlocksPrev[freeBlockLengthLog].Length > 0 && index <= _freeBlocksPrev[freeBlockLengthLog].Peek().Index)
+        else if (_freeBlocksPrev.Length > 0 && index <= _freeBlocksPrev.Peek().Index)
         {
-            _freeBlocksPrev[freeBlockLengthLog].Enqueue(header);
-            _freeBlockFlagsPrev |= (1L << freeBlockLengthLog);
+            _freeBlocksPrev.Enqueue(header);
         }
         else
         {
-            _freeBlocksNext[freeBlockLengthLog].Enqueue(header);
-            _freeBlockFlagsNext |= (1L << freeBlockLengthLog);
+            _freeBlocksNext.Enqueue(header);
         }
 
         Allocations--;
@@ -542,11 +334,8 @@ public unsafe class LocalBuddySuballocator<T> : ISuballocator<T>, IDisposable wh
     {
         Allocations = 0;
         BlocksUsed = 0;
-
-        foreach (var heap in _freeBlocksPrev.Concat(_freeBlocksNext))
-        {
-            heap.Clear();
-        }
+        _freeBlocksPrev.Clear();
+        _freeBlocksNext.Clear();
 
         InitBlocks();
     }
@@ -565,10 +354,8 @@ public unsafe class LocalBuddySuballocator<T> : ISuballocator<T>, IDisposable wh
         {
             if (disposing)
             {
-                foreach (var heap in _freeBlocksPrev.Concat(_freeBlocksNext))
-                {
-                    heap.Dispose();
-                }
+                _freeBlocksPrev.Dispose();
+                _freeBlocksNext.Dispose();
             }
 
             _memoryHandle.Dispose();
