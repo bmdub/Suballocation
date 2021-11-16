@@ -298,6 +298,22 @@ public unsafe class LocalBuddySuballocator<T> : ISuballocator<T>, IDisposable wh
             throw new OutOfMemoryException();
         }
 
+        /*long matchingBlockLengths = matchingBlockLengthsNext;
+        ref long freeBlockFlags = ref _freeBlockFlagsNext;
+        var freeBlocks = _freeBlocksNext;
+        var freeBlocksOther = _freeBlocksPrev;
+
+        int freeBlockIndexNext = BitOperations.TrailingZeroCount((ulong)matchingBlockLengthsNext);
+        long distanceNext = freeBlockIndexNext >= 64 ? long.MaxValue : _freeBlocksNext[freeBlockIndexNext].Peek().Index;
+
+        if (freeBlockIndexNext >= 64)
+        var headerNext = _freeBlocksNext[freeBlockIndexNext].Peek();
+
+        int freeBlockIndexPrev = BitOperations.TrailingZeroCount((ulong)matchingBlockLengthsPrev);
+        var headerPrev = _freeBlocksPrev[freeBlockIndexPrev].Peek();
+        */
+
+
         // Choose the side with the most free block sizes, as a heuristic
         long matchingBlockLengths = matchingBlockLengthsNext;
         ref long freeBlockFlags = ref _freeBlockFlagsNext;
@@ -376,6 +392,8 @@ public unsafe class LocalBuddySuballocator<T> : ISuballocator<T>, IDisposable wh
 
         Allocations++;
         BlocksUsed += header.BlockLength;
+
+        _lastWriteIndex = header.Index + header.BlockLength;
 
         return (header.Index, header.BlockLength);
     }
