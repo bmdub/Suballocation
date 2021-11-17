@@ -26,9 +26,9 @@ namespace Suballocation
             LengthTotal = length;
         }
 
-        public long SizeUsed => LengthUsed * Unsafe.SizeOf<T>();
+        public long LengthBytesUsed => LengthUsed * Unsafe.SizeOf<T>();
 
-        public long SizeTotal => LengthTotal * Unsafe.SizeOf<T>();
+        public long LengthBytesTotal => LengthTotal * Unsafe.SizeOf<T>();
 
         public long Allocations { get; private set; }
 

@@ -59,9 +59,9 @@ public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T
 
     public long BlocksUsed { get; private set; }
 
-    public long SizeUsed => LengthUsed * (long)Unsafe.SizeOf<T>();
+    public long LengthBytesUsed => LengthUsed * (long)Unsafe.SizeOf<T>();
 
-    public long SizeTotal => LengthTotal * (long)Unsafe.SizeOf<T>();
+    public long LengthBytesTotal => LengthTotal * (long)Unsafe.SizeOf<T>();
 
     public long Allocations { get; private set; }
 
@@ -150,11 +150,11 @@ public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T
         if (_disposed) throw new ObjectDisposedException(nameof(BuddySuballocator<T>));
 
         long index = -1;
-        long blockLength = (long)BitOperations.RoundUpToPowerOf2((ulong)length) >> BitOperations.Log2((ulong)MinBlockLength);
+        long blockCount = (long)BitOperations.RoundUpToPowerOf2((ulong)length) >> BitOperations.Log2((ulong)MinBlockLength);
 
-        int minFreeBlockIndex = BitOperations.Log2((ulong)blockLength);
+        int minFreeBlockIndex = BitOperations.Log2((ulong)blockCount);
 
-        long mask = ~(blockLength - 1);
+        long mask = ~(blockCount - 1);
 
         long matchingBlockLengths = mask & _freeBlockIndexesFlags;
 

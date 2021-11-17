@@ -22,7 +22,7 @@ public unsafe readonly record struct NativeMemorySegmentResource<T> : ISegmentRe
 
     public unsafe void* PBytes { get => (void*)_ptr; init => _ptr = (IntPtr)value; }
 
-    public long Size => _length * Unsafe.SizeOf<T>();
+    public long LengthBytes => _length * Unsafe.SizeOf<T>();
 
     public unsafe T* PElems { get => (T*)_ptr; init => _ptr = (IntPtr)value; }
 
@@ -40,7 +40,7 @@ public unsafe readonly record struct NativeMemorySegmentResource<T> : ISegmentRe
     }
 
     public override string ToString() =>
-        $"[0x{(ulong)_ptr}] Length: {_length:N0}, Size: {Size:N0}, Value: {this[0]}";
+        $"[0x{(ulong)_ptr}] Length: {_length:N0}, Size: {LengthBytes:N0}, Value: {this[0]}";
 
     public IEnumerator<T> GetEnumerator()
     {

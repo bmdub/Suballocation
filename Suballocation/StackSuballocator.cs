@@ -39,9 +39,9 @@ public unsafe sealed class FixedStackSuballocator<T> : ISuballocator<T>, IDispos
         _pElems = (T*)_memoryHandle.Pointer;
     }
 
-    public long SizeUsed => LengthUsed * Unsafe.SizeOf<T>();
+    public long LengthBytesUsed => LengthUsed * Unsafe.SizeOf<T>();
 
-    public long SizeTotal => LengthTotal * Unsafe.SizeOf<T>();
+    public long LengthBytesTotal => LengthTotal * Unsafe.SizeOf<T>();
 
     public long Allocations { get; private set; }
 

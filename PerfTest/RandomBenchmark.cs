@@ -29,7 +29,7 @@ namespace PerfTest
         public RandomBenchmark(ISuballocator<T> suballocator, int seed, int minSegmentLen, int maxSegmentLen)
         {
             Allocator = suballocator.GetType().Name;
-            Size = suballocator.SizeTotal.ToString("N0");
+            Size = suballocator.LengthBytesTotal.ToString("N0");
             _suballocator = suballocator;
             _seed = seed;
             _random = new Random(seed);

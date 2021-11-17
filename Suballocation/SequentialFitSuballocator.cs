@@ -52,9 +52,9 @@ public unsafe sealed class SequentialFitSuballocator<T> : ISuballocator<T>, IDis
         _indexQueue.Enqueue(new IndexEntry() { Index = 0, Length = data.Length });
     }
 
-    public long SizeUsed => LengthUsed * Unsafe.SizeOf<T>();
+    public long LengthBytesUsed => LengthUsed * Unsafe.SizeOf<T>();
 
-    public long SizeTotal => LengthTotal * Unsafe.SizeOf<T>();
+    public long LengthBytesTotal => LengthTotal * Unsafe.SizeOf<T>();
 
     public long Allocations { get; private set; }
 

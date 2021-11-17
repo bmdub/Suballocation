@@ -42,15 +42,15 @@ namespace Suballocation
                 havePrevWindow = _windowsPrev.TryPeek(out prevWindow);
             }
 
-            if (haveNextWindow && CanCombine(segment.PElems, segment.Size, nextWindow.PElems, nextWindow.Size))
+            if (haveNextWindow && CanCombine(segment.PElems, segment.LengthBytes, nextWindow.PElems, nextWindow.LengthBytes))
             {
                 _windowsNext.Pop();
-                nextWindow = nextWindow with { PElems = segment.PElems, Length = ((long)nextWindow.PElems + nextWindow.Size - (long)segment.PElems) / Unsafe.SizeOf<T>() };
+                nextWindow = nextWindow with { PElems = segment.PElems, Length = ((long)nextWindow.PElems + nextWindow.LengthBytes - (long)segment.PElems) / Unsafe.SizeOf<T>() };
 
-                while (_windowsNext.TryPeek(out var seg) && CanCombine(nextWindow.PElems, nextWindow.Size, seg.PElems, seg.Size))
+                while (_windowsNext.TryPeek(out var seg) && CanCombine(nextWindow.PElems, nextWindow.LengthBytes, seg.PElems, seg.LengthBytes))
                 {
                     _windowsNext.Pop();
-                    nextWindow = nextWindow with { PElems = nextWindow.PElems, Length = ((long)seg.PElems + seg.Size - (long)nextWindow.PElems) / Unsafe.SizeOf<T>() };
+                    nextWindow = nextWindow with { PElems = nextWindow.PElems, Length = ((long)seg.PElems + seg.LengthBytes - (long)nextWindow.PElems) / Unsafe.SizeOf<T>() };
                 }
 
                 _windowsNext.Push(nextWindow);
@@ -58,15 +58,15 @@ namespace Suballocation
                 return;
             }
 
-            if (havePrevWindow && CanCombine(prevWindow.PElems, prevWindow.Size, segment.PElems, segment.Size))
+            if (havePrevWindow && CanCombine(prevWindow.PElems, prevWindow.LengthBytes, segment.PElems, segment.LengthBytes))
             {
                 _windowsPrev.Pop();
-                prevWindow = prevWindow with { PElems = prevWindow.PElems, Length = ((long)segment.PElems + segment.Size - (long)prevWindow.PElems) / Unsafe.SizeOf<T>() };
+                prevWindow = prevWindow with { PElems = prevWindow.PElems, Length = ((long)segment.PElems + segment.LengthBytes - (long)prevWindow.PElems) / Unsafe.SizeOf<T>() };
 
-                while (_windowsPrev.TryPeek(out var seg) && CanCombine(seg.PElems, seg.Size, prevWindow.PElems, prevWindow.Size))
+                while (_windowsPrev.TryPeek(out var seg) && CanCombine(seg.PElems, seg.LengthBytes, prevWindow.PElems, prevWindow.LengthBytes))
                 {
                     _windowsPrev.Pop();
-                    prevWindow = prevWindow with { PElems = seg.PElems, Length = ((long)prevWindow.PElems + prevWindow.Size - (long)seg.PElems) / Unsafe.SizeOf<T>() };
+                    prevWindow = prevWindow with { PElems = seg.PElems, Length = ((long)prevWindow.PElems + prevWindow.LengthBytes - (long)seg.PElems) / Unsafe.SizeOf<T>() };
                 }
 
                 _windowsPrev.Push(prevWindow);
@@ -94,9 +94,9 @@ namespace Suballocation
 
             foreach (var window in _windowsNext)
             {
-                if (windows.Count > 0 && CanCombine(windows[^1].PElems, windows[^1].Size, window.PElems, window.Size))
+                if (windows.Count > 0 && CanCombine(windows[^1].PElems, windows[^1].LengthBytes, window.PElems, window.LengthBytes))
                 {
-                    windows[^1] = window with { PElems = windows[^1].PElems, Length = ((long)window.PElems + window.Size - (long)windows[^1].PElems) / Unsafe.SizeOf<T>() };
+                    windows[^1] = window with { PElems = windows[^1].PElems, Length = ((long)window.PElems + window.LengthBytes - (long)windows[^1].PElems) / Unsafe.SizeOf<T>() };
                 }
                 else
                 {

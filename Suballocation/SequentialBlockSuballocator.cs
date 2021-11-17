@@ -7,10 +7,10 @@ namespace Suballocation;
 
 public unsafe sealed class SequentialBlockSuballocator<T> : ISuballocator<T>, IDisposable where T : unmanaged
 {
-    private readonly long _blockLength;
     private readonly T* _pElems;
     private readonly IndexEntry* _pIndex;
-    private readonly long _indexLength;
+    private readonly long _blockLength;
+    private readonly long _blockCount;
     private readonly MemoryHandle _memoryHandle;
     private readonly bool _privatelyOwned;
     private long _lastIndex;
@@ -19,56 +19,65 @@ public unsafe sealed class SequentialBlockSuballocator<T> : ISuballocator<T>, ID
     public SequentialBlockSuballocator(long length, long blockLength = 1)
     {
         if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length), $"Buffer length must be greater than 0.");
-        if (blockLength <= 0) throw new ArgumentOutOfRangeException(nameof(blockLength), $"Block length must be greater than 0.");
+        if (blockLength <= 0 || blockLength > int.MaxValue) throw new ArgumentOutOfRangeException(nameof(blockLength), $"Block length must be greater than 0 and less than Int32.Max.");
 
         _blockLength = blockLength;
         LengthTotal = length;
 
-        _indexLength = length / blockLength;
-        if (length % blockLength > 0) _indexLength++;
-        _pIndex = (IndexEntry*)NativeMemory.Alloc((nuint)(_indexLength * sizeof(IndexEntry)));
+        _blockCount = length / blockLength;
+        if (length % blockLength > 0) _blockCount++;
+        _pIndex = (IndexEntry*)NativeMemory.Alloc((nuint)(_blockCount * sizeof(IndexEntry)));
         _pElems = (T*)NativeMemory.Alloc((nuint)length, (nuint)Unsafe.SizeOf<T>());
         _privatelyOwned = true;
 
-        _pIndex[0] = new IndexEntry() { BlockLength = _indexLength };
+        for (long i = 0; i < _blockCount; i += int.MaxValue)
+        {
+            _pIndex[i] = new IndexEntry() { BlockCount = Math.Min(int.MaxValue, (int)(_blockCount - i)) };
+        }
     }
 
     public SequentialBlockSuballocator(T* pElems, long length, long blockLength = 1)
     {
         if (pElems == null) throw new ArgumentNullException(nameof(pElems));
         if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length), $"Buffer length must be greater than 0.");
-        if (blockLength <= 0) throw new ArgumentOutOfRangeException(nameof(blockLength), $"Block length must be greater than 0.");
+        if (blockLength <= 0 || blockLength > int.MaxValue) throw new ArgumentOutOfRangeException(nameof(blockLength), $"Block length must be greater than 0 and less than Int32.Max.");
 
         _blockLength = blockLength;
         LengthTotal = length;
 
-        _indexLength = length / blockLength;
-        if (length % blockLength > 0) _indexLength++;
-        _pIndex = (IndexEntry*)NativeMemory.Alloc((nuint)(_indexLength * sizeof(IndexEntry)));
+        _blockCount = length / blockLength;
+        if (length % blockLength > 0) _blockCount++;
+        _pIndex = (IndexEntry*)NativeMemory.Alloc((nuint)(_blockCount * sizeof(IndexEntry)));
         _pElems = pElems;
 
-        _pIndex[0] = new IndexEntry() { BlockLength = _indexLength };
+        for (long i = 0; i < _blockCount; i += int.MaxValue)
+        {
+            _pIndex[i] = new IndexEntry() { BlockCount = Math.Min(int.MaxValue, (int)(_blockCount - i)) };
+        }
     }
 
     public SequentialBlockSuballocator(Memory<T> data, long blockLength = 1)
     {
-        if (blockLength <= 0) throw new ArgumentOutOfRangeException(nameof(blockLength), $"Block length must be greater than 0.");
+        if (blockLength <= 0 || blockLength > int.MaxValue) throw new ArgumentOutOfRangeException(nameof(blockLength), $"Block length must be greater than 0 and less than Int32.Max.");
 
         _blockLength = blockLength;
         LengthTotal = data.Length;
 
-        _indexLength = data.Length / blockLength;
-        if (data.Length % blockLength > 0) _indexLength++;
-        _pIndex = (IndexEntry*)NativeMemory.Alloc((nuint)(_indexLength * sizeof(IndexEntry)));
+        _blockCount = data.Length / blockLength;
+        if (data.Length % blockLength > 0) _blockCount++;
+        _pIndex = (IndexEntry*)NativeMemory.Alloc((nuint)(_blockCount * sizeof(IndexEntry)));
         _memoryHandle = data.Pin();
         _pElems = (T*)_memoryHandle.Pointer;
 
-        _pIndex[0] = new IndexEntry() { BlockLength = _indexLength };
+        for (long i = 0; i < _blockCount; i += int.MaxValue)
+        {
+            _pIndex[i] = new IndexEntry() { BlockCount = Math.Min(int.MaxValue, (int)(_blockCount - i)) };
+        }
     }
 
-    public long SizeUsed => LengthUsed * Unsafe.SizeOf<T>();
+    public long LengthBytesUsed => LengthUsed * Unsafe.SizeOf<T>();
 
-    public long SizeTotal => LengthTotal * Unsafe.SizeOf<T>();
+    public long LengthBytesTotal => LengthTotal * Unsafe.SizeOf<T>();
 
     public long Allocations { get; private set; }
 
@@ -81,11 +90,12 @@ public unsafe sealed class SequentialBlockSuballocator<T> : ISuballocator<T>, ID
     public NativeMemorySegmentResource<T> RentResource(long length = 1)
     {
         if (_disposed) throw new ObjectDisposedException(nameof(SequentialBlockSuballocator<T>));
-        if (length == 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot rent a segment of size 0.");
+        if (length <= 0 || length > int.MaxValue * _blockLength)
+            throw new ArgumentOutOfRangeException(nameof(length), $"{nameof(length)} must be greater than 0 and less than Int32.Max times the block length.");
 
         var rawSegment = Alloc(length);
 
-        return new NativeMemorySegmentResource<T>(this, _pElems + rawSegment.Index * _blockLength, rawSegment.Length * _blockLength);
+        return new NativeMemorySegmentResource<T>(this, _pElems + rawSegment.Offset, rawSegment.Length);
     }
 
     public void ReturnResource(NativeMemorySegmentResource<T> segment)
@@ -98,11 +108,12 @@ public unsafe sealed class SequentialBlockSuballocator<T> : ISuballocator<T>, ID
     public NativeMemorySegment<T> Rent(long length = 1)
     {
         if (_disposed) throw new ObjectDisposedException(nameof(SequentialBlockSuballocator<T>));
-        if (length == 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot rent a segment of size 0.");
+        if (length <= 0 || length > int.MaxValue * _blockLength)
+            throw new ArgumentOutOfRangeException(nameof(length), $"{nameof(length)} must be greater than 0 and less than Int32.Max times the block length.");
 
         var rawSegment = Alloc(length);
 
-        return new NativeMemorySegment<T>(_pElems + rawSegment.Index * _blockLength, rawSegment.Length * _blockLength);
+        return new NativeMemorySegment<T>(_pElems + rawSegment.Offset, rawSegment.Length);
     }
 
     public void Return(NativeMemorySegment<T> segment)
@@ -112,69 +123,45 @@ public unsafe sealed class SequentialBlockSuballocator<T> : ISuballocator<T>, ID
         Free(segment.PElems - _pElems, segment.Length);
     }
 
-    private unsafe (long Index, long Length) Alloc(long length)
+    private unsafe (long Offset, long Length) Alloc(long length)
     {
-        if (LengthUsed + length > LengthTotal)
-        {
-            throw new OutOfMemoryException();
-        }
-
-        long blockLength = length / _blockLength;
+        int blockCount = (int)(length / _blockLength);
         if (length % _blockLength > 0)
         {
-            blockLength++;
+            blockCount++;
         }
 
-        long index = _lastIndex;
+        long blockIndex = _lastIndex;
 
         for (; ; )
         {
-            ref IndexEntry header = ref _pIndex[index];
+            ref IndexEntry header = ref _pIndex[blockIndex];
 
-            var nextIndex = index + header.BlockLength;
-
-            if (header.Occupied == false)
+            if (header.Occupied == false && header.BlockCount >= blockCount)
             {
-                while (nextIndex < _indexLength && nextIndex == index + header.BlockLength)
-                {.//todo: move this part to Free()
-                    ref IndexEntry nextHeader = ref _pIndex[nextIndex];
-
-                    if(nextHeader.Occupied)
-                    {
-                        break;
-                    }
-
-                    header = header with { BlockLength = header.BlockLength + nextHeader.BlockLength };
-
-                    nextIndex += nextHeader.BlockLength;
-                }
-
-                if (header.BlockLength >= blockLength)
+                if (header.BlockCount > blockCount)
                 {
-                    if (header.BlockLength > blockLength)
-                    {
-                        var leftoverEntry = new IndexEntry() { BlockLength = header.BlockLength - blockLength };
-                        _pIndex[index + blockLength] = leftoverEntry;
+                    var leftoverEntry = new IndexEntry() { BlockCount = header.BlockCount - blockCount };
+                    _pIndex[blockIndex + blockCount] = leftoverEntry;
 
-                        header = header with { BlockLength = blockLength };
-                    }
-
-                    header = header with { Occupied = true };
-
-                    Allocations++;
-                    LengthUsed += length;
-
-                    _lastIndex = index;
-
-                    return new(index, blockLength);
+                    header = header with { BlockCount = blockCount };
                 }
+
+                header = header with { Occupied = true };
+
+                Allocations++;
+                LengthUsed += length;
+
+                _lastIndex = blockIndex;
+
+                return new(blockIndex * _blockLength, blockCount * _blockLength);
             }
 
-            index = nextIndex;
-            if (index >= _indexLength)
-                index = 0; // Assuming that there is always a segment at 0
+            blockIndex = blockIndex + header.BlockCount;
+            if (blockIndex >= _blockCount)
+                blockIndex = 0; // Assuming that there is always a segment at 0
 
-            if (index == _lastIndex)
+            if (blockIndex == _lastIndex)
             {
                 // Looped around to initial index position
                 break;
@@ -191,7 +178,7 @@ public unsafe sealed class SequentialBlockSuballocator<T> : ISuballocator<T>, ID
 
         ref IndexEntry header = ref _pIndex[blockIndex];
 
-        if (header.BlockLength != blockLength)
+        if (header.BlockCount != blockLength)
         {
             throw new ArgumentException($"No rented segment found at index {index} with length {length}.");
         }
@@ -200,6 +187,23 @@ public unsafe sealed class SequentialBlockSuballocator<T> : ISuballocator<T>, ID
 
         Allocations--;
         LengthUsed -= length;
+
+        // While we're here, see if we can combine the next segment with this one.
+        var nextIndex = blockIndex + header.BlockCount;
+
+        while (nextIndex < _blockCount)
+        {
+            ref IndexEntry nextHeader = ref _pIndex[nextIndex];
+
+            if (nextHeader.Occupied)
+            {
+                break;
+            }
+
+            header = header with { BlockCount = header.BlockCount + nextHeader.BlockCount };
+
+            nextIndex += nextHeader.BlockCount;
+        }
     }
 
     public void Clear()
@@ -207,7 +211,11 @@ public unsafe sealed class SequentialBlockSuballocator<T> : ISuballocator<T>, ID
         Allocations = 0;
         LengthUsed = 0;
         _lastIndex = 0;
-        _pIndex[0] = new IndexEntry() { BlockLength = _indexLength };
+
+        for (long i = 0; i < _blockCount; i += int.MaxValue)
+        {
+            _pIndex[i] = new IndexEntry() { BlockCount = Math.Min(int.MaxValue, (int)(_blockCount - i)) };
+        }
     }
 
     private void Dispose(bool disposing)
@@ -245,9 +253,9 @@ public unsafe sealed class SequentialBlockSuballocator<T> : ISuballocator<T>, ID
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
     readonly struct IndexEntry
     {
-        private readonly ulong _general;
+        private readonly uint _general;
 
-        public bool Occupied { get => (_general & 0x1000000000000000ul) != 0; init => _general = value ? (_general | 0x1000000000000000ul) : (_general & 0xEFFFFFFFFFFFFFFFul); }
-        public long BlockLength { get => (long)(_general & 0xEFFFFFFFFFFFFFFFul); init => _general = (_general & 0x1000000000000000ul) | ((ulong)value & 0xEFFFFFFFFFFFFFFFul); }
+        public bool Occupied { get => (_general & 0x10000000u) != 0; init => _general = value ? (_general | 0x10000000u) : (_general & 0xEFFFFFFFu); }
+        public int BlockCount { get => (int)(_general & 0xEFFFFFFFu); init => _general = (_general & 0x10000000u) | ((uint)value & 0xEFFFFFFFu); }
     }
 }

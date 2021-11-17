@@ -13,7 +13,7 @@ namespace PerfTest
         public FillFixedBenchmark(ISuballocator<T> suballocator)
         {
             Allocator = suballocator.GetType().Name;
-            Size = suballocator.SizeTotal.ToString("N0");
+            Size = suballocator.LengthBytesTotal.ToString("N0");
             _suballocator = suballocator;
         }
 

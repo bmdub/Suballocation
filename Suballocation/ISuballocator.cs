@@ -3,8 +3,8 @@ namespace Suballocation;
 
 public interface ISuballocator : IDisposable
 {
-    public long SizeUsed { get; }
-    public long SizeTotal { get; }
+    public long LengthBytesUsed { get; }
+    public long LengthBytesTotal { get; }
     public long Allocations { get; }
 }
 

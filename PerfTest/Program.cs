@@ -101,7 +101,7 @@ public partial class Program
 
         results.WriteToConsole();
 		results.WriteToBarGraph(nameof(FillEmptyFixedBenchmark<T>), "Allocator", "Duration (ms)", result => result.GetValue("Allocator"), result => double.Parse(result.GetValue("DurationMs")));
-		
+		*/
 		results = new List<BenchmarkResult>()
 		{
 			new FillVariableBenchmark<T>(new FixedStackSuballocator<T>(length), 0, maxSegLen).Run(iterations),
@@ -115,7 +115,7 @@ public partial class Program
 
         results.WriteToConsole();
 		results.WriteToBarGraph(nameof(FillVariableBenchmark<T>), "Allocator", "Duration (ms)", result => result.GetValue("Allocator"), result => double.Parse(result.GetValue("DurationMs")));
-		*/
+		
 		results = new List<BenchmarkResult>()
 		{
 			new RandomBenchmark<T>(new SequentialFitSuballocator<T>(length), 0, minSegLen, maxSegLen).Run(iterations),

@@ -17,7 +17,6 @@ public unsafe class LocalBuddySuballocator<T> : ISuballocator<T>, IDisposable wh
     private T* _pElems;
     private NativeHeap<BlockHeader> _freeBlocksPrev = null!;
     private NativeHeap<BlockHeader> _freeBlocksNext = null!;
-    private long _maxBlockLength;
     private long _indexLength;
     private long _lastWriteIndex;
     private long _lastLastWriteIndex;
@@ -70,9 +69,9 @@ public unsafe class LocalBuddySuballocator<T> : ISuballocator<T>, IDisposable wh
 
     public long BlocksUsed { get; private set; }
 
-    public long SizeUsed => LengthUsed * (long)Unsafe.SizeOf<T>();
+    public long LengthBytesUsed => LengthUsed * (long)Unsafe.SizeOf<T>();
 
-    public long SizeTotal => LengthTotal * (long)Unsafe.SizeOf<T>();
+    public long LengthBytesTotal => LengthTotal * (long)Unsafe.SizeOf<T>();
 
     public long Allocations { get; private set; }
 
@@ -87,7 +86,6 @@ public unsafe class LocalBuddySuballocator<T> : ISuballocator<T>, IDisposable wh
         MinBlockLength = (long)BitOperations.RoundUpToPowerOf2((ulong)minBlockLength);
 
         _indexLength = LengthTotal >> BitOperations.Log2((ulong)MinBlockLength);
-        _maxBlockLength = (long)BitOperations.RoundUpToPowerOf2((ulong)_indexLength);
 
         var blockLengthLog = BitOperations.Log2((ulong)_indexLength) + 1;
         _freeBlocksPrev = new NativeHeap<BlockHeader>(comparer: _prevElementComparer);

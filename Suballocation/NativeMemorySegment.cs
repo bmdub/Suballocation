@@ -9,21 +9,21 @@ namespace Suballocation;
 public unsafe readonly record struct NativeMemorySegment<T> : ISegment<T> where T : unmanaged
 {
     private readonly IntPtr _ptr;
-    private readonly long _length;
+    private readonly long _size;
 
     public unsafe NativeMemorySegment(T* ptr, long length)
     {
         _ptr = (IntPtr)ptr;
-        _length = length;
+        _size = length;
     }
 
     public unsafe void* PBytes { get => (void*)_ptr; init => _ptr = (IntPtr)value; }
 
-    public long Size => _length * Unsafe.SizeOf<T>();
+    public long LengthBytes => _size * Unsafe.SizeOf<T>();
 
     public unsafe T* PElems { get => (T*)_ptr; init => _ptr = (IntPtr)value; }
 
-    public long Length { get => _length; init => _length = value; }
+    public long Length { get => _size; init => _size = value; }
 
     public ref T Value => ref *(T*)_ptr;
 
@@ -31,17 +31,17 @@ public unsafe readonly record struct NativeMemorySegment<T> : ISegment<T> where 
 
     public Span<T> AsSpan()
     {
-        if (_length > int.MaxValue) throw new InvalidOperationException($"Unable to return a Span<T> for a range that is larger than int.Maxvalue.");
+        if (_size > int.MaxValue) throw new InvalidOperationException($"Unable to return a Span<T> for a range that is larger than int.Maxvalue.");
 
-        return new Span<T>((T*)_ptr, (int)_length);
+        return new Span<T>((T*)_ptr, (int)_size);
     }
 
     public override string ToString() =>
-        $"[0x{(ulong)_ptr}] Length: {_length:N0}, Size: {Size:N0}, Value: {this[0]}";
+        $"[0x{(ulong)_ptr}] Length: {_size:N0}, Size: {LengthBytes:N0}, Value: {this[0]}";
 
     public IEnumerator<T> GetEnumerator()
     {
-        for (long i = 0; i < _length; i++)
+        for (long i = 0; i < _size; i++)
         {
             yield return this[i];
         }
