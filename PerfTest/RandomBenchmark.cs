@@ -80,7 +80,7 @@ namespace PerfTest
                         segments.Add(seg);
                         updateWindowTracker.Register(seg);
 
-                        if (lengthRented % 100 == 0)
+                        if (lengthRented % 10 == 0)
                         {
                             var updateWindows = updateWindowTracker.BuildUpdateWindows();
                             updateWindowTracker.Clear();
@@ -100,9 +100,9 @@ namespace PerfTest
                                 //Console.WriteLine(((long)updateWindows.Windows[0].PElems - (long)_suballocator.PElems) / (double)_suballocator.SizeTotal * 150);
                                 //Console.WriteLine((((long)updateWindows.Windows[^1].PElems - (long)_suballocator.PElems) + updateWindows.Windows[^1].Length) / (double)_suballocator.LengthTotal * 150);
 
-                                if (((long)updateWindows.Windows[0].PElems - (long)_suballocator.PElems) / (double)_suballocator.SizeTotal * 150 <= j)
+                                if (((long)updateWindows.Windows[0].PElems - (long)_suballocator.PElems) / (double)_suballocator.LengthBytesTotal * 150 <= j)
                                 {
-                                    if ((((long)updateWindows.Windows[^1].PElems - (long)_suballocator.PElems) + updateWindows.Windows[^1].Size) / (double)_suballocator.SizeTotal * 150 >= j ||
+                                    if ((((long)updateWindows.Windows[^1].PElems - (long)_suballocator.PElems) + updateWindows.Windows[^1].LengthBytes) / (double)_suballocator.LengthBytesTotal * 150 >= j ||
                                         wCount == 0)
                                     {
                                         c = 'W';
@@ -115,14 +115,26 @@ namespace PerfTest
                             Console.WriteLine();*/
                         }
                     }
-                    else if(segments.Count > 1)
+                    else if (segments.Count > 1)
                     {
-                        var swapIndex = _random.Next(0, segments.Count);
-                        var returnSeg = segments[swapIndex];
-                        segments[swapIndex] = segments[^1];
-                        segments.RemoveAt(segments.Count - 1);
+                        //var swapIndex = _random.Next(0, segments.Count);
 
-                        _suballocator.Return(returnSeg);
+                        //var swapIndex = (int)(Math.Log2(_random.NextDouble() * 7.0 + 1) / 3 * segments.Count);
+                        var swapIndex = (int)((Math.Log(_random.NextDouble() * Math.E) + 4) / (1 + 4) * segments.Count);
+                        //Console.WriteLine(swapIndex);
+                        if (swapIndex >= segments.Count)
+                            swapIndex = segments.Count - 1;
+                        if (swapIndex < 0)
+                            swapIndex = 0;
+
+                        //if (_random.Next(0, segments.Count) > swapIndex)
+                        {
+                            var returnSeg = segments[swapIndex];
+                            segments[swapIndex] = segments[^1];
+                            segments.RemoveAt(segments.Count - 1);
+
+                            _suballocator.Return(returnSeg);
+                        }
                     }
                 }
             }

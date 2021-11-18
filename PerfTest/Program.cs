@@ -61,11 +61,12 @@ public partial class Program
 
     static void Main(string[] args)
     {
-        long length = 1L << 26;
+        long length = 1L << 27;
 
-        Test<SomeStruct>(1, length, 1024 / 4, 65536 / 2, 16);// (int)(length / 10000), 2);
+        Test<SomeStruct>(1, length, 1, 65536 / 10, 1);// (int)(length / 10000), 2);
+		//Test<SomeStruct>(1, length, 10000, 10000, 1);// (int)(length / 10000), 2);
 
-        Console.ReadKey();
+		Console.ReadKey();
     }
 
     static void Test<T>(int iterations, long length, int minSegLen, int maxSegLen, long blockLength) where T : unmanaged
@@ -80,7 +81,7 @@ public partial class Program
 			new FillFixedBenchmark<T>(new SequentialFitSuballocator<T>(length)).Run(iterations),
 			new FillFixedBenchmark<T>(new SequentialBlockSuballocator<T>(length, 1)).Run(iterations),
 			new FillFixedBenchmark<T>(new BuddySuballocator<T>(length, 1)).Run(iterations),
-            new FillFixedBenchmark<T>(new LocalBuddySuballocator<T>(length, 1)).Run(iterations),
+            new FillFixedBenchmark<T>(new DirectionalBlockSuballocator<T>(length, 1)).Run(iterations),
 			//new SequentialFillFixedBenchmark<T>(new ArrayPoolSuballocator<T>(length)).Run(iterations),
 			//new SequentialFillFixedBenchmark<T>(new MemoryPoolSuballocator<T>(length)).Run(iterations),
 		};
@@ -94,34 +95,34 @@ public partial class Program
             new FillEmptyFixedBenchmark<T>(new SequentialFitSuballocator<T>(length)).Run(iterations),
 			new FillEmptyFixedBenchmark<T>(new SequentialBlockSuballocator<T>(length, 1)).Run(iterations),
 			new FillEmptyFixedBenchmark<T>(new BuddySuballocator<T>(length, 1)).Run(iterations),
-            new FillEmptyFixedBenchmark<T>(new LocalBuddySuballocator<T>(length, 1)).Run(iterations),
+            new FillEmptyFixedBenchmark<T>(new DirectionalBlockSuballocator<T>(length, 1)).Run(iterations),
 			//new SequentialFillReturnFixedBenchmark<T>(new ArrayPoolSuballocator<T>(length)).Run(iterations),
 			//new SequentialFillReturnFixedBenchmark<T>(new MemoryPoolSuballocator<T>(length)).Run(iterations),
 		};
 
         results.WriteToConsole();
 		results.WriteToBarGraph(nameof(FillEmptyFixedBenchmark<T>), "Allocator", "Duration (ms)", result => result.GetValue("Allocator"), result => double.Parse(result.GetValue("DurationMs")));
-		*/
+		
 		results = new List<BenchmarkResult>()
 		{
 			new FillVariableBenchmark<T>(new FixedStackSuballocator<T>(length), 0, maxSegLen).Run(iterations),
 			new FillVariableBenchmark<T>(new SequentialFitSuballocator<T>(length), 0, maxSegLen).Run(iterations),
 			new FillVariableBenchmark<T>(new SequentialBlockSuballocator<T>(length, blockLength), 0, maxSegLen).Run(iterations),
 			new FillVariableBenchmark<T>(new BuddySuballocator<T>(length, blockLength), 0, maxSegLen).Run(iterations),
-            new FillVariableBenchmark<T>(new LocalBuddySuballocator<T>(length, blockLength), 0, maxSegLen).Run(iterations),
+            new FillVariableBenchmark<T>(new DirectionalBlockSuballocator<T>(length, blockLength), 0, maxSegLen).Run(iterations),
 			//new SequentialFillVariableBenchmark<T>(new ArrayPoolSuballocator<T>(length), 0, maxSegLen).Run(iterations),
 			//new SequentialFillVariableBenchmark<T>(new MemoryPoolSuballocator<T>(length), 0, maxSegLen).Run(iterations),
 		};
 
         results.WriteToConsole();
 		results.WriteToBarGraph(nameof(FillVariableBenchmark<T>), "Allocator", "Duration (ms)", result => result.GetValue("Allocator"), result => double.Parse(result.GetValue("DurationMs")));
-		
+		*/
 		results = new List<BenchmarkResult>()
 		{
 			new RandomBenchmark<T>(new SequentialFitSuballocator<T>(length), 0, minSegLen, maxSegLen).Run(iterations),
 			new RandomBenchmark<T>(new SequentialBlockSuballocator<T>(length, blockLength), 0, minSegLen, maxSegLen).Run(iterations),
 			new RandomBenchmark<T>(new BuddySuballocator<T>(length, blockLength), 0, minSegLen, maxSegLen).Run(iterations),
-            new RandomBenchmark<T>(new LocalBuddySuballocator<T>(length, blockLength), 0, minSegLen, maxSegLen).Run(iterations),
+            new RandomBenchmark<T>(new DirectionalBlockSuballocator<T>(length, blockLength), 0, minSegLen, maxSegLen).Run(iterations),
 			//new SequentialFillVariableBenchmark<T>(new ArrayPoolSuballocator<T>(length), 0, maxSegLen).Run(iterations),
 			//new SequentialFillVariableBenchmark<T>(new MemoryPoolSuballocator<T>(length), 0, maxSegLen).Run(iterations),
 		};

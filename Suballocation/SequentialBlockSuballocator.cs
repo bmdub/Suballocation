@@ -137,24 +137,43 @@ public unsafe sealed class SequentialBlockSuballocator<T> : ISuballocator<T>, ID
         {
             ref IndexEntry header = ref _pIndex[blockIndex];
 
-            if (header.Occupied == false && header.BlockCount >= blockCount)
+            if (header.Occupied == false)
             {
-                if (header.BlockCount > blockCount)
-                {
-                    var leftoverEntry = new IndexEntry() { BlockCount = header.BlockCount - blockCount };
-                    _pIndex[blockIndex + blockCount] = leftoverEntry;
+                var nextIndex = blockIndex + header.BlockCount;
 
-                    header = header with { BlockCount = blockCount };
+                while (header.BlockCount < blockCount && nextIndex < _blockCount)
+                {
+                    ref IndexEntry nextHeader = ref _pIndex[nextIndex];
+
+                    if (nextHeader.Occupied)
+                    {
+                        break;
+                    }
+
+                    header = header with { BlockCount = header.BlockCount + nextHeader.BlockCount };
+
+                    nextIndex += nextHeader.BlockCount;
                 }
 
-                header = header with { Occupied = true };
+                if (header.BlockCount >= blockCount)
+                {
+                    if (header.BlockCount > blockCount)
+                    {
+                        var leftoverEntry = new IndexEntry() { BlockCount = header.BlockCount - blockCount };
+                        _pIndex[blockIndex + blockCount] = leftoverEntry;
 
-                Allocations++;
-                LengthUsed += length;
+                        header = header with { BlockCount = blockCount };
+                    }
 
-                _lastIndex = blockIndex;
+                    header = header with { Occupied = true };
 
-                return new(blockIndex * _blockLength, blockCount * _blockLength);
+                    Allocations++;
+                    LengthUsed += length;
+
+                    _lastIndex = blockIndex;
+
+                    return new(blockIndex * _blockLength, blockCount * _blockLength);
+                }
             }
 
             blockIndex = blockIndex + header.BlockCount;
@@ -187,23 +206,6 @@ public unsafe sealed class SequentialBlockSuballocator<T> : ISuballocator<T>, ID
 
         Allocations--;
         LengthUsed -= length;
-
-        // While we're here, see if we can combine the next segment with this one.
-        var nextIndex = blockIndex + header.BlockCount;
-
-        while (nextIndex < _blockCount)
-        {
-            ref IndexEntry nextHeader = ref _pIndex[nextIndex];
-
-            if (nextHeader.Occupied)
-            {
-                break;
-            }
-
-            header = header with { BlockCount = header.BlockCount + nextHeader.BlockCount };
-
-            nextIndex += nextHeader.BlockCount;
-        }
     }
 
     public void Clear()
