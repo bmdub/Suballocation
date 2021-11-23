@@ -3,12 +3,14 @@ using System.Runtime.InteropServices;
 
 namespace Suballocation.Collections;
 
+//todo: use ulong instead of byte?
+
 internal unsafe sealed class NativeBitArray : IDisposable
 {
-    public readonly long Length;
-    public readonly long LengthBytes;
+    public long Length;
+    public long LengthBytes;
     private const long BitOffsetMask = 0x07;
-    private readonly byte* _pData;
+    private byte* _pData;
     private bool _disposedValue;
 
     public NativeBitArray(long length)
@@ -45,6 +47,26 @@ internal unsafe sealed class NativeBitArray : IDisposable
                 _pData[byteIndex] &= unchecked((byte)~bitMask);
             }
         }
+    }
+
+    public void Resize(long length)
+    {
+        var oldPData = _pData;
+
+        Length = length;
+        LengthBytes = length / 8;
+        if ((length & 255) != 0) LengthBytes++;
+
+        _pData = (byte*)NativeMemory.AllocZeroed((nuint)LengthBytes);
+
+        for (long i = 0; i < LengthBytes; i += uint.MaxValue)
+        {
+            uint lengthPart = (uint)Math.Min(uint.MaxValue, LengthBytes - i);
+
+            Unsafe.CopyBlock(_pData + i, oldPData + i, lengthPart);
+        }
+
+        NativeMemory.Free(_pData);
     }
 
     public void Clear()

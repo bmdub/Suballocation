@@ -130,7 +130,7 @@ public unsafe sealed class SequentialFitSuballocator<T> : ISuballocator<T>, IDis
 
                 if (_allocatedIndexes[indexEntry.Index] == true)
                 {
-                    _futureQueue.EnqueueHead(indexEntry);
+                    _futureQueue.Enqueue(indexEntry);
                     continue;
                 }
 
@@ -154,7 +154,7 @@ public unsafe sealed class SequentialFitSuballocator<T> : ISuballocator<T>, IDis
                         _indexQueue.EnqueueHead(leftoverEntry);
                     }
 
-                    _futureQueue.EnqueueHead(indexEntry);
+                    _futureQueue.Enqueue(indexEntry);
                     _allocatedIndexes[indexEntry.Index] = true;
 
                     Allocations++;
@@ -164,7 +164,7 @@ public unsafe sealed class SequentialFitSuballocator<T> : ISuballocator<T>, IDis
                 }
                 else
                 {
-                    _futureQueue.EnqueueHead(indexEntry);
+                    _futureQueue.Enqueue(indexEntry);
                 }
             }
         }

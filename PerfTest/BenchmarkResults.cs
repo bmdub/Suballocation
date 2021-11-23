@@ -10,6 +10,12 @@ namespace PerfTest
 {
     internal static class BenchmarkResults
     {
+        public static void ShowImages(this IEnumerable<BenchmarkResult> results)
+        {
+            foreach (var result in results)
+                result.Benchmark.ShowImage();
+        }
+
         public static void WriteToGroupedBarGraph(this IEnumerable<BenchmarkResult> results)
         {
             var plt = new ScottPlot.Plot(1200, 400);

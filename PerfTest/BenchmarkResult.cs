@@ -10,13 +10,17 @@ namespace PerfTest
     {
         private Dictionary<string, string> _valuesByName = new();
 
-        public BenchmarkResult(BenchmarkBase benchmark)
+        public BenchmarkResult(IBenchmark benchmark)
         {
-            foreach(var pair in benchmark.GetColumnHeaders().Zip(benchmark.GetColumnValues()))
+            Benchmark = benchmark;
+
+            foreach (var pair in benchmark.GetColumnHeaders().Zip(benchmark.GetColumnValues()))
             {
                 _valuesByName[pair.First] = pair.Second;
             }
         }
+
+        public IBenchmark Benchmark { get; init; }
 
         public string GetValue(string columnName)
         {
