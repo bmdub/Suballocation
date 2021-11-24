@@ -1,10 +1,14 @@
 ﻿using System.Buffers;
 using System.Numerics;
-using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 
 namespace Suballocation;
 
+
+
+/// <summary>
+/// Provides a Buddy System / Buddy Allocator function on top of a large/fixed native buffer.
+/// </summary>
+/// <typeparam name="T">A blittable element type that defines the units to allocate.</typeparam>
 public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T : unmanaged
 {
     public long MinBlockLength;
@@ -23,7 +27,7 @@ public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T
         if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot allocate a backing buffer of size <= 0.");
         if (minBlockLength > length) throw new ArgumentOutOfRangeException(nameof(minBlockLength), $"Cannot have a block size that's larger than {nameof(length)}.");
 
-        LengthTotal = length;
+        CapacityLength = length;
         _privatelyOwned = true;
 
         _pElems = (T*)NativeMemory.Alloc((nuint)length, (nuint)Unsafe.SizeOf<T>());
@@ -37,7 +41,7 @@ public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T
         if (minBlockLength > length) throw new ArgumentOutOfRangeException(nameof(minBlockLength), $"Cannot have a block size that's larger than {nameof(length)}.");
         if (pData == null) throw new ArgumentNullException(nameof(pData));
 
-        LengthTotal = length;
+        CapacityLength = length;
 
         _pElems = pData;
 
@@ -49,7 +53,7 @@ public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T
         if (data.Length == 0) throw new ArgumentOutOfRangeException(nameof(data), $"Cannot allocate a backing buffer of size <= 0.");
         if (minBlockLength > (uint)data.Length) throw new ArgumentOutOfRangeException(nameof(minBlockLength), $"Cannot have a block size that's larger than {nameof(data.Length)}.");
 
-        LengthTotal = (long)data.Length;
+        CapacityLength = (long)data.Length;
         _memoryHandle = data.Pin();
 
         _pElems = (T*)_memoryHandle.Pointer;
@@ -59,23 +63,25 @@ public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T
 
     public long BlocksUsed { get; private set; }
 
-    public long LengthBytesUsed => LengthUsed * (long)Unsafe.SizeOf<T>();
+    public long UsedBytes => UsedLength * (long)Unsafe.SizeOf<T>();
 
-    public long LengthBytesTotal => LengthTotal * (long)Unsafe.SizeOf<T>();
+    public long CapacityBytes => CapacityLength * (long)Unsafe.SizeOf<T>();
 
     public long Allocations { get; private set; }
 
-    public long LengthUsed { get => BlocksUsed * MinBlockLength; }
+    public long UsedLength { get => BlocksUsed * MinBlockLength; }
 
-    public long LengthTotal { get; init; }
+    public long CapacityLength { get; init; }
 
     public T* PElems => _pElems;
+
+    public byte* PBytes => (byte*)_pElems;
 
     private void Init(long minBlockLength)
     {
         MinBlockLength = (long)BitOperations.RoundUpToPowerOf2((ulong)minBlockLength);
 
-        _indexLength = LengthTotal >> BitOperations.Log2((ulong)MinBlockLength);
+        _indexLength = CapacityLength >> BitOperations.Log2((ulong)MinBlockLength);
         _pIndex = (BlockHeader*)NativeMemory.AllocZeroed((nuint)(_indexLength * (long)sizeof(BlockHeader)));
         _maxBlockLength = (long)BitOperations.RoundUpToPowerOf2((ulong)_indexLength);
         _freeBlockIndexesStart = new long[BitOperations.Log2((ulong)_maxBlockLength) + 1];
@@ -373,7 +379,6 @@ public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T
         private readonly long _nextFree;
 
         public bool Occupied { get => (_infoByte & 0b1000_0000) == 0; init => _infoByte = value ? (byte)(_infoByte & 0b0111_1111) : (byte)(_infoByte | 0b1000_0000); }
-        //public bool Occupied { get => (_infoByte & 0b1000_0000) != 0; init => _infoByte = value ? (byte)(_infoByte | 0b1000_0000) : (byte)(_infoByte & 0b0111_1111); }
         public int BlockLengthLog { get => (_infoByte & 0b0111_1111); init => _infoByte = (byte)((_infoByte & 0b1000_0000) | (value & 0b0111_1111)); }
         public long BlockLength
         {

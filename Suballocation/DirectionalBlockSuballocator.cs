@@ -1,10 +1,11 @@
-﻿using Suballocation.Collections;
-using System.Buffers;
-using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
+﻿using System.Buffers;
 
 namespace Suballocation;
 
+/// <summary>
+/// A suballocator that uses a heuristic to converge on a nearby free segment in either direction when locating a segment to rent.
+/// </summary>
+/// <typeparam name="T">A blittable element type that defines the units to allocate.</typeparam>
 public unsafe sealed class DirectionalBlockSuballocator<T> : ISuballocator<T>, IDisposable where T : unmanaged
 {
     private readonly T* _pElems;
@@ -24,7 +25,7 @@ public unsafe sealed class DirectionalBlockSuballocator<T> : ISuballocator<T>, I
         if (blockLength <= 0 || blockLength > int.MaxValue) throw new ArgumentOutOfRangeException(nameof(blockLength), $"Block length must be greater than 0 and less than Int32.Max.");
 
         _blockLength = blockLength;
-        LengthTotal = length;
+        CapacityLength = length;
 
         _blockCount = length / blockLength;
         if (length % blockLength > 0) _blockCount++;
@@ -46,7 +47,7 @@ public unsafe sealed class DirectionalBlockSuballocator<T> : ISuballocator<T>, I
         if (blockLength <= 0 || blockLength > int.MaxValue) throw new ArgumentOutOfRangeException(nameof(blockLength), $"Block length must be greater than 0 and less than Int32.Max.");
 
         _blockLength = blockLength;
-        LengthTotal = length;
+        CapacityLength = length;
 
         _blockCount = length / blockLength;
         if (length % blockLength > 0) _blockCount++;
@@ -65,7 +66,7 @@ public unsafe sealed class DirectionalBlockSuballocator<T> : ISuballocator<T>, I
         if (blockLength <= 0 || blockLength > int.MaxValue) throw new ArgumentOutOfRangeException(nameof(blockLength), $"Block length must be greater than 0 and less than Int32.Max.");
 
         _blockLength = blockLength;
-        LengthTotal = data.Length;
+        CapacityLength = data.Length;
 
         _blockCount = data.Length / blockLength;
         if (data.Length % blockLength > 0) _blockCount++;
@@ -80,17 +81,19 @@ public unsafe sealed class DirectionalBlockSuballocator<T> : ISuballocator<T>, I
         }
     }
 
-    public long LengthBytesUsed => LengthUsed * Unsafe.SizeOf<T>();
+    public long UsedBytes => UsedLength * Unsafe.SizeOf<T>();
 
-    public long LengthBytesTotal => LengthTotal * Unsafe.SizeOf<T>();
+    public long CapacityBytes => CapacityLength * Unsafe.SizeOf<T>();
 
     public long Allocations { get; private set; }
 
-    public long LengthUsed { get; private set; }
+    public long UsedLength { get; private set; }
 
-    public long LengthTotal { get; init; }
+    public long CapacityLength { get; init; }
 
     public T* PElems => _pElems;
+
+    public byte* PBytes => (byte*)_pElems;
 
     public NativeMemorySegmentResource<T> RentResource(long length = 1)
     {
@@ -263,7 +266,7 @@ public unsafe sealed class DirectionalBlockSuballocator<T> : ISuballocator<T>, I
             }
 
             Allocations++;
-            LengthUsed += length;
+            UsedLength += length;
 
             return new(targetIndex * _blockLength, blockCount * _blockLength);
         }
@@ -284,7 +287,7 @@ public unsafe sealed class DirectionalBlockSuballocator<T> : ISuballocator<T>, I
         header = header with { Occupied = false };
 
         Allocations--;
-        LengthUsed -= length;
+        UsedLength -= length;
 
         // While we're here, see if we can combine the nearby segments with this one.
         long rangeStart = blockIndex;
@@ -367,7 +370,7 @@ public unsafe sealed class DirectionalBlockSuballocator<T> : ISuballocator<T>, I
     public void Clear()
     {
         Allocations = 0;
-        LengthUsed = 0;
+        UsedLength = 0;
         _currentIndex = 0;
         _freeBlockBalance = 0;
 

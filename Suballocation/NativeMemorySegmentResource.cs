@@ -1,24 +1,23 @@
 ﻿using System.Collections;
-using System.Runtime.CompilerServices;
 
 namespace Suballocation;
 
 [DebuggerDisplay("[0x{(ulong)_ptr}] Length: {_length}, Size: {Size}, Value: {this[0]}")]
 public unsafe readonly record struct NativeMemorySegmentResource<T> : ISegmentResource, ISegment<T> where T : unmanaged
 {
-    private readonly ISuballocator<T> _memoryPool;
+    private readonly ISuballocator<T> _suballocator;
     private readonly IntPtr _ptr;
     private readonly long _length;
 
     public unsafe NativeMemorySegmentResource(ISuballocator<T> memoryPool, T* ptr, long length)
     {
-        _memoryPool = memoryPool;
+        _suballocator = memoryPool;
         _ptr = (IntPtr)ptr;
         _length = length;
     }
 
-    public ISuballocator<T> MemoryPool { get => _memoryPool; init => _memoryPool = value; }
-    ISuballocator ISegmentResource.MemoryPool { get => MemoryPool; }
+    public ISuballocator<T> Suballocator { get => _suballocator; init => _suballocator = value; }
+    ISuballocator ISegmentResource.Suballocator { get => Suballocator; }
 
     public unsafe void* PBytes { get => (void*)_ptr; init => _ptr = (IntPtr)value; }
 
@@ -55,6 +54,6 @@ public unsafe readonly record struct NativeMemorySegmentResource<T> : ISegmentRe
 
     public void Dispose()
     {
-        _memoryPool.ReturnResource(this);
+        _suballocator.ReturnResource(this);
     }
 }

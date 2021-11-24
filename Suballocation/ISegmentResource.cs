@@ -1,7 +1,11 @@
 ﻿
 namespace Suballocation;
 
+/// <summary>
+/// Provides basic information about a segment resource.
+/// </summary>
 public interface ISegmentResource : IDisposable
 {
-    ISuballocator MemoryPool { get; }
+    /// <summary>The suballocator from which this segment was rented.</summary>
+    ISuballocator Suballocator { get; }
 }

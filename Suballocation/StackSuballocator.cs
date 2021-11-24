@@ -1,9 +1,11 @@
 ﻿using System.Buffers;
-using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 
 namespace Suballocation;
 
+/// <summary>
+/// A suballocator that returns the free segment at the top of the used stack of segments.
+/// </summary>
+/// <typeparam name="T">A blittable element type that defines the units to allocate.</typeparam>
 public unsafe sealed class FixedStackSuballocator<T> : ISuballocator<T>, IDisposable where T : unmanaged
 {
     private readonly T* _pElems;
@@ -15,7 +17,7 @@ public unsafe sealed class FixedStackSuballocator<T> : ISuballocator<T>, IDispos
     {
         if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot allocate a backing buffer of size <= 0.");
 
-        LengthTotal = length;
+        CapacityLength = length;
 
         _pElems = (T*)NativeMemory.Alloc((nuint)length, (nuint)Unsafe.SizeOf<T>());
         _privatelyOwned = true;
@@ -26,30 +28,32 @@ public unsafe sealed class FixedStackSuballocator<T> : ISuballocator<T>, IDispos
         if (pData == null) throw new ArgumentNullException(nameof(pData));
         if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot allocate a backing buffer of size <= 0.");
 
-        LengthTotal = length;
+        CapacityLength = length;
 
         _pElems = pData;
     }
 
     public FixedStackSuballocator(Memory<T> data)
     {
-        LengthTotal = data.Length;
+        CapacityLength = data.Length;
 
         _memoryHandle = data.Pin();
         _pElems = (T*)_memoryHandle.Pointer;
     }
 
-    public long LengthBytesUsed => LengthUsed * Unsafe.SizeOf<T>();
+    public long UsedBytes => UsedLength * Unsafe.SizeOf<T>();
 
-    public long LengthBytesTotal => LengthTotal * Unsafe.SizeOf<T>();
+    public long CapacityBytes => CapacityLength * Unsafe.SizeOf<T>();
 
     public long Allocations { get; private set; }
 
-    public long LengthUsed { get; private set; }
+    public long UsedLength { get; private set; }
 
-    public long LengthTotal { get; init; }
+    public long CapacityLength { get; init; }
 
     public T* PElems => _pElems;
+
+    public byte* PBytes => (byte*)_pElems;
 
     public NativeMemorySegmentResource<T> RentResource(long length = 1)
     {
@@ -87,38 +91,38 @@ public unsafe sealed class FixedStackSuballocator<T> : ISuballocator<T>, IDispos
 
     private unsafe (long Index, long Length) Alloc(long length)
     {
-        if (LengthUsed + length > LengthTotal)
+        if (UsedLength + length > CapacityLength)
         {
             throw new OutOfMemoryException();
         }
 
-        long index = LengthUsed;
+        long index = UsedLength;
 
         Allocations++;
-        LengthUsed += length;
+        UsedLength += length;
 
         return new(index, length);
     }
 
     private unsafe void Free(long index, long length)
     {
-        if (LengthUsed == 0)
+        if (UsedLength == 0)
         {
             throw new ArgumentException($"No rented segments found.");
         }
 
-        if (index + length != LengthUsed)
+        if (index + length != UsedLength)
         {
             throw new ArgumentException($"Returned segment+length is not from the top of the stack.");
         }
 
         Allocations--;
-        LengthUsed -= length;
+        UsedLength -= length;
     }
 
     public void Clear()
     {
-        LengthUsed = 0;
+        UsedLength = 0;
         Allocations = 0;
     }
 

@@ -1,10 +1,11 @@
-﻿using Suballocation.Collections;
-using System.Buffers;
-using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
+﻿using System.Buffers;
 
 namespace Suballocation;
 
+/// <summary>
+/// A sequential-fit suballocator that returns the nearest free next segment that is large enough to fulfill the request.
+/// </summary>
+/// <typeparam name="T">A blittable element type that defines the units to allocate.</typeparam>
 public unsafe sealed class SequentialBlockSuballocator<T> : ISuballocator<T>, IDisposable where T : unmanaged
 {
     private readonly T* _pElems;
@@ -22,7 +23,7 @@ public unsafe sealed class SequentialBlockSuballocator<T> : ISuballocator<T>, ID
         if (blockLength <= 0 || blockLength > int.MaxValue) throw new ArgumentOutOfRangeException(nameof(blockLength), $"Block length must be greater than 0 and less than Int32.Max.");
 
         _blockLength = blockLength;
-        LengthTotal = length;
+        CapacityLength = length;
 
         _blockCount = length / blockLength;
         if (length % blockLength > 0) _blockCount++;
@@ -43,7 +44,7 @@ public unsafe sealed class SequentialBlockSuballocator<T> : ISuballocator<T>, ID
         if (blockLength <= 0 || blockLength > int.MaxValue) throw new ArgumentOutOfRangeException(nameof(blockLength), $"Block length must be greater than 0 and less than Int32.Max.");
 
         _blockLength = blockLength;
-        LengthTotal = length;
+        CapacityLength = length;
 
         _blockCount = length / blockLength;
         if (length % blockLength > 0) _blockCount++;
@@ -61,7 +62,7 @@ public unsafe sealed class SequentialBlockSuballocator<T> : ISuballocator<T>, ID
         if (blockLength <= 0 || blockLength > int.MaxValue) throw new ArgumentOutOfRangeException(nameof(blockLength), $"Block length must be greater than 0 and less than Int32.Max.");
 
         _blockLength = blockLength;
-        LengthTotal = data.Length;
+        CapacityLength = data.Length;
 
         _blockCount = data.Length / blockLength;
         if (data.Length % blockLength > 0) _blockCount++;
@@ -75,17 +76,19 @@ public unsafe sealed class SequentialBlockSuballocator<T> : ISuballocator<T>, ID
         }
     }
 
-    public long LengthBytesUsed => LengthUsed * Unsafe.SizeOf<T>();
+    public long UsedBytes => UsedLength * Unsafe.SizeOf<T>();
 
-    public long LengthBytesTotal => LengthTotal * Unsafe.SizeOf<T>();
+    public long CapacityBytes => CapacityLength * Unsafe.SizeOf<T>();
 
     public long Allocations { get; private set; }
 
-    public long LengthUsed { get; private set; }
+    public long UsedLength { get; private set; }
 
-    public long LengthTotal { get; init; }
+    public long CapacityLength { get; init; }
 
     public T* PElems => _pElems;
+
+    public byte* PBytes => (byte*)_pElems;
 
     public NativeMemorySegmentResource<T> RentResource(long length = 1)
     {
@@ -168,7 +171,7 @@ public unsafe sealed class SequentialBlockSuballocator<T> : ISuballocator<T>, ID
                     header = header with { Occupied = true };
 
                     Allocations++;
-                    LengthUsed += length;
+                    UsedLength += length;
 
                     _lastIndex = blockIndex;
 
@@ -205,13 +208,13 @@ public unsafe sealed class SequentialBlockSuballocator<T> : ISuballocator<T>, ID
         header = header with { Occupied = false };
 
         Allocations--;
-        LengthUsed -= length;
+        UsedLength -= length;
     }
 
     public void Clear()
     {
         Allocations = 0;
-        LengthUsed = 0;
+        UsedLength = 0;
         _lastIndex = 0;
 
         for (long i = 0; i < _blockCount; i += int.MaxValue)

@@ -1,10 +1,12 @@
 ﻿using Suballocation.Collections;
 using System.Buffers;
-using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 
 namespace Suballocation;
 
+/// <summary>
+/// A sequential-fit suballocator that returns the nearest free next segment that is large enough to fulfill the request.
+/// </summary>
+/// <typeparam name="T">A blittable element type that defines the units to allocate.</typeparam>
 public unsafe sealed class SequentialFitSuballocator<T> : ISuballocator<T>, IDisposable where T : unmanaged
 {
     private readonly T* _pElems;
@@ -19,7 +21,7 @@ public unsafe sealed class SequentialFitSuballocator<T> : ISuballocator<T>, IDis
     {
         if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot allocate a backing buffer of size <= 0.");
 
-        LengthTotal = length;
+        CapacityLength = length;
         _allocatedIndexes = new NativeBitArray(length);
 
         _pElems = (T*)NativeMemory.Alloc((nuint)length, (nuint)Unsafe.SizeOf<T>());
@@ -33,7 +35,7 @@ public unsafe sealed class SequentialFitSuballocator<T> : ISuballocator<T>, IDis
         if (pData == null) throw new ArgumentNullException(nameof(pData));
         if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot allocate a backing buffer of size <= 0.");
 
-        LengthTotal = length;
+        CapacityLength = length;
         _allocatedIndexes = new NativeBitArray(length);
 
         _pElems = pData;
@@ -43,7 +45,7 @@ public unsafe sealed class SequentialFitSuballocator<T> : ISuballocator<T>, IDis
 
     public SequentialFitSuballocator(Memory<T> data)
     {
-        LengthTotal = data.Length;
+        CapacityLength = data.Length;
         _allocatedIndexes = new NativeBitArray(data.Length);
 
         _memoryHandle = data.Pin();
@@ -52,17 +54,19 @@ public unsafe sealed class SequentialFitSuballocator<T> : ISuballocator<T>, IDis
         _indexQueue.Enqueue(new IndexEntry() { Index = 0, Length = data.Length });
     }
 
-    public long LengthBytesUsed => LengthUsed * Unsafe.SizeOf<T>();
+    public long UsedBytes => UsedLength * Unsafe.SizeOf<T>();
 
-    public long LengthBytesTotal => LengthTotal * Unsafe.SizeOf<T>();
+    public long CapacityBytes => CapacityLength * Unsafe.SizeOf<T>();
 
     public long Allocations { get; private set; }
 
-    public long LengthUsed { get; private set; }
+    public long UsedLength { get; private set; }
 
-    public long LengthTotal { get; init; }
+    public long CapacityLength { get; init; }
 
     public T* PElems => _pElems;
+
+    public byte* PBytes => (byte*)_pElems;
 
     public NativeMemorySegmentResource<T> RentResource(long length = 1)
     {
@@ -100,7 +104,7 @@ public unsafe sealed class SequentialFitSuballocator<T> : ISuballocator<T>, IDis
 
     private unsafe (long Index, long Length) Alloc(long length)
     {
-        if (LengthUsed + length > LengthTotal)
+        if (UsedLength + length > CapacityLength)
         {
             throw new OutOfMemoryException();
         }
@@ -158,7 +162,7 @@ public unsafe sealed class SequentialFitSuballocator<T> : ISuballocator<T>, IDis
                     _allocatedIndexes[indexEntry.Index] = true;
 
                     Allocations++;
-                    LengthUsed += length;
+                    UsedLength += length;
 
                     return new(indexEntry.Index, indexEntry.Length);
                 }
@@ -182,17 +186,17 @@ public unsafe sealed class SequentialFitSuballocator<T> : ISuballocator<T>, IDis
         _allocatedIndexes[index] = false;
 
         Allocations--;
-        LengthUsed -= length;
+        UsedLength -= length;
     }
 
     public void Clear()
     {
         Allocations = 0;
-        LengthUsed = 0;
+        UsedLength = 0;
         _indexQueue.Clear();
         _futureQueue.Clear();
         _allocatedIndexes.Clear();
-        _indexQueue.Enqueue(new IndexEntry() { Index = 0, Length = LengthTotal });
+        _indexQueue.Enqueue(new IndexEntry() { Index = 0, Length = CapacityLength });
     }
 
     private void Dispose(bool disposing)

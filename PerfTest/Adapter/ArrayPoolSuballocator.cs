@@ -23,18 +23,18 @@ namespace Suballocation
             _rentedArrays = new((int)Math.Min(int.MaxValue, length));
 
             // Note: We are artificially limiting ArrayPool here.
-            LengthTotal = length;
+            CapacityLength = length;
         }
 
-        public long LengthBytesUsed => LengthUsed * Unsafe.SizeOf<T>();
+        public long LengthBytesUsed => UsedLength * Unsafe.SizeOf<T>();
 
-        public long LengthBytesTotal => LengthTotal * Unsafe.SizeOf<T>();
+        public long LengthBytesTotal => CapacityLength * Unsafe.SizeOf<T>();
 
         public long Allocations { get; private set; }
 
-        public long LengthUsed { get; private set; }
+        public long UsedLength { get; private set; }
 
-        public long LengthTotal { get; init; }
+        public long CapacityLength { get; init; }
 
         public T* PElems => throw new NotImplementedException();
 
@@ -74,7 +74,7 @@ namespace Suballocation
 
         private unsafe (long Index, long Length) Alloc(long length)
         {
-            if (LengthUsed + length > LengthTotal || _rentedArrays.Count == int.MaxValue)
+            if (UsedLength + length > CapacityLength || _rentedArrays.Count == int.MaxValue)
             {
                 throw new OutOfMemoryException();
             }
@@ -86,7 +86,7 @@ namespace Suballocation
             _rentedArrays.Add(handle.AddrOfPinnedObject(), handle);
 
             Allocations++;
-            LengthUsed += length;
+            UsedLength += length;
 
             return new((long)handle.AddrOfPinnedObject(), length);
         }
@@ -110,12 +110,12 @@ namespace Suballocation
             handle.Free();
 
             Allocations--;
-            LengthUsed -= length;
+            UsedLength -= length;
         }
 
         public void Clear()
         {
-            LengthUsed = 0;
+            UsedLength = 0;
             Allocations = 0;
 
             foreach(var handle in _rentedArrays.Values)

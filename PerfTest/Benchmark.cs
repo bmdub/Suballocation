@@ -77,7 +77,7 @@ namespace PerfTest
             UpdateWindowTracker1<T> windowTracker,
             int updatesPerWindow)
         {
-            long totalLengthToRent = (long)(countPct * _suballocator.LengthTotal);
+            long totalLengthToRent = (long)(countPct * _suballocator.CapacityLength);
             long lengthRented = 0;
             long lengthRentedSum = 0;
             long lengthRentedWindow = 0;
@@ -98,7 +98,7 @@ namespace PerfTest
                     minSegmentLen = (int)((lengthRentedSum / (double)totalLengthToRent) * (minSegmentLenFinal - minSegmentLenInitial) + minSegmentLenInitial);
                     maxSegmentLen = (int)((lengthRentedSum / (double)totalLengthToRent) * (maxSegmentLenFinal - maxSegmentLenInitial) + maxSegmentLenInitial);
 
-                    double fillRatio = lengthRented / (double)_suballocator.LengthTotal;
+                    double fillRatio = lengthRented / (double)_suballocator.CapacityLength;
 
                     var fillRatioDiff = desiredFillRatio - fillRatio;
 
@@ -127,7 +127,7 @@ namespace PerfTest
 
                             for (int i = 0; i < windowSegments.Count && _y > 0; i++)
                             {
-                                double scale = _imageInfo.Width / (double)_suballocator.LengthTotal;
+                                double scale = _imageInfo.Width / (double)_suballocator.CapacityLength;
                                 var pixelStartX = ((long)(windowSegments[i].Segment.PElems) - (long)_suballocator.PElems) / Unsafe.SizeOf<T>() * scale;
                                 //Console.WriteLine(pixelStartX);
                                 var pixelLengthX = windowSegments[i].Segment.Length * scale;

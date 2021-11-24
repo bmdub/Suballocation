@@ -1,8 +1,9 @@
-﻿using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
-
+﻿
 namespace Suballocation.Collections;
 
+/// <summary>
+/// An unmanaged memory-backed bit array that can store more than 2^31 elements.
+/// </summary>
 public unsafe sealed class NativeBitArray : IDisposable
 {
     public long Length { get; private set; }
@@ -11,17 +12,28 @@ public unsafe sealed class NativeBitArray : IDisposable
     private ulong* _pData;
     private bool _disposedValue;
 
+    /// <summary></summary>
+    /// <param name="length">The length, in bits, of the array.</param>
+    /// <exception cref="ArgumentOutOfRangeException"></exception>
     public NativeBitArray(long length)
     {
         if (length < 0) throw new ArgumentOutOfRangeException(nameof(length), "Length must be >= 0.");
 
         Length = length;
         _lengthLongs = length / 64;
-        if (_lengthLongs * 64 != length) _lengthLongs++;
+        if (_lengthLongs * 64 != length)
+        {
+            _lengthLongs++;
+        }
 
         _pData = (ulong*)NativeMemory.AllocZeroed((nuint)_lengthLongs * 8);
     }
 
+    /// <summary></summary>
+    /// <param name="index">The index of the ith bit.</param>
+    /// <returns></returns>
+    /// <exception cref="ObjectDisposedException"></exception>
+    /// <exception cref="ArgumentOutOfRangeException"></exception>
     public bool this[long index]
     {
         get
@@ -53,37 +65,40 @@ public unsafe sealed class NativeBitArray : IDisposable
         }
     }
 
-    public void Resize(long bitLength)
+    /// <summary>Resize the array to a larger or smaller size, copying the existing elements.</summary>
+    /// <param name="length">The length, in bits, of the array.</param>
+    /// <exception cref="ObjectDisposedException"></exception>
+    /// <exception cref="ArgumentOutOfRangeException"></exception>
+    public void Resize(long length)
     {
         if (_disposedValue) throw new ObjectDisposedException(nameof(NativeBitArray));
-        if (bitLength < 0) throw new ArgumentOutOfRangeException(nameof(bitLength), "Length must be >= 0.");
+        if (length < 0) throw new ArgumentOutOfRangeException(nameof(length), "Length must be >= 0.");
 
-        var oldPData = _pData;
+        // Create the new array.
+        var pOldData = _pData;
 
         var prevLengthBytes = _lengthLongs * 8;
 
-        Length = bitLength;
-        _lengthLongs = bitLength / 64;
-        if (_lengthLongs * 64 != bitLength) _lengthLongs++;
+        Length = length;
+        _lengthLongs = length / 64;
+        if (_lengthLongs * 64 != length) _lengthLongs++;
 
         _pData = (ulong*)NativeMemory.AllocZeroed((nuint)_lengthLongs * 8);
 
-        var lengthBytes = Math.Min(prevLengthBytes, _lengthLongs * 8);
+        // Copy elements from the old array.
+        Buffer.MemoryCopy(pOldData, _pData, _lengthLongs * 8, Math.Min(prevLengthBytes, _lengthLongs * 8));
 
-        for (long i = 0; i < lengthBytes; i += uint.MaxValue)
-        {
-            uint lengthPart = (uint)Math.Min(uint.MaxValue, lengthBytes - i);
-
-            Unsafe.CopyBlock(_pData + i, oldPData + i, lengthPart);
-        }
-
-        NativeMemory.Free(oldPData);
+        NativeMemory.Free(pOldData);
     }
 
+    /// <summary>Sets all elements of the existing array to false.</summary>
+    /// <exception cref="ObjectDisposedException"></exception>
     public void Clear()
     {
         if (_disposedValue) throw new ObjectDisposedException(nameof(NativeBitArray));
 
+        // Zero-out all of the data in the backing array.
+        // We can do this in Int32.MaxValue chunks (is there a better method?)
         var lengthBytes = _lengthLongs * 8;
 
         for (long i = 0; i < lengthBytes; i += uint.MaxValue)
@@ -113,6 +128,7 @@ public unsafe sealed class NativeBitArray : IDisposable
         Dispose(disposing: false);
     }
 
+    /// <summary>Disposes of native backing resources.</summary>
     public void Dispose()
     {
         Dispose(disposing: true);
