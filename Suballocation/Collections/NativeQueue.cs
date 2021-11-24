@@ -21,7 +21,7 @@ internal unsafe class NativeQueue<T> : IDisposable where T : unmanaged
         _tail = _bufferLength - 1;
     }
 
-    public long Length => _length;
+    public long Count => _length;
 
     public void Enqueue(T elem)
     {

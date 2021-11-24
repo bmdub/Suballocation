@@ -109,7 +109,7 @@ public unsafe sealed class SequentialFitSuballocator<T> : ISuballocator<T>, IDis
 
         for (; ; )
         {
-            if (_indexQueue.Length == 0)
+            if (_indexQueue.Count == 0)
             {
                 var temp = _indexQueue;
                 _indexQueue = _futureQueue;
@@ -122,7 +122,7 @@ public unsafe sealed class SequentialFitSuballocator<T> : ISuballocator<T>, IDis
                 }
             }
 
-            var indexCount = _indexQueue.Length;
+            var indexCount = _indexQueue.Count;
 
             for(long i=0; i<indexCount; i++)
             {

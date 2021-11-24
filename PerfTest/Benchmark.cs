@@ -83,14 +83,13 @@ namespace PerfTest
             long lengthRentedWindow = 0;
             int minSegmentLen = minSegmentLenInitial;
             int maxSegmentLen = maxSegmentLenInitial;
+            long elapsedTicks = 0;
 
             windowTracker.Clear();
             List<NativeMemorySegment<T>> segments = new List<NativeMemorySegment<T>>((int)totalLengthToRent);
+            List<(bool Rental, NativeMemorySegment<T> Segment)> windowSegments = new List<(bool Rental, NativeMemorySegment<T> Segment)>(updatesPerWindow);
 
             _stopwatch.Restart();
-
-            .//todo: put all add/removed segs in lists; do tracking and drawing at end
-            //todo also: maybe try writing to segment?
 
             try
             {
@@ -114,21 +113,31 @@ namespace PerfTest
                         LengthRentedActual += seg.Length;
                         lengthRented += seg.Length;
                         segments.Add(seg);
-                        windowTracker.Register(seg);
-
-                        if (_y > 0)
-                        {
-                            double scale = _imageInfo.Width / (double)_suballocator.LengthTotal;
-                            var pixelStartX = ((long)seg.PElems - (long)_suballocator.PElems) / Unsafe.SizeOf<T>() * scale;
-                            //Console.WriteLine(pixelStartX);
-                            var pixelLengthX = seg.Length * scale;
-                            if (pixelLengthX < 1)
-                                pixelLengthX = 1;
-                            _surface.Canvas.DrawRect((float)pixelStartX, 0, (float)pixelLengthX, _y, _paintFore);
-                        }
+                        windowSegments.Add((true, seg));
+                        RentalCount++;
 
                         if (lengthRentedWindow >= updatesPerWindow)
                         {
+                            _stopwatch.Stop();
+
+                            elapsedTicks += _stopwatch.ElapsedTicks;
+
+                            for (int i = 0; i < windowSegments.Count; i++)
+                                windowTracker.Register(windowSegments[i].Segment);
+
+                            for (int i = 0; i < windowSegments.Count && _y > 0; i++)
+                            {
+                                double scale = _imageInfo.Width / (double)_suballocator.LengthTotal;
+                                var pixelStartX = ((long)(windowSegments[i].Segment.PElems) - (long)_suballocator.PElems) / Unsafe.SizeOf<T>() * scale;
+                                //Console.WriteLine(pixelStartX);
+                                var pixelLengthX = windowSegments[i].Segment.Length * scale;
+                                if (pixelLengthX < 1)
+                                    pixelLengthX = 1;
+                                _surface.Canvas.DrawRect((float)pixelStartX, 0, (float)pixelLengthX, _y, windowSegments[i].Rental ? _paintFore : _paintBack);
+                            }
+
+                            windowSegments.Clear();
+
                             lengthRentedWindow = 0;
 
                             var updateWindows = windowTracker.BuildUpdateWindows();
@@ -141,6 +150,8 @@ namespace PerfTest
                             _windowSamples++;
 
                             _y--;
+
+                            _stopwatch.Restart();
                         }
                     }
                     else if (segments.Count > 1)
@@ -158,15 +169,7 @@ namespace PerfTest
                         segments[swapIndex] = segments[^1];
                         segments.RemoveAt(segments.Count - 1);
 
-                        if (_y > 0)
-                        {
-                            double scale = _imageInfo.Width / (double)_suballocator.LengthTotal;
-                            var pixelStartX = ((long)seg.PElems - (long)_suballocator.PElems) / Unsafe.SizeOf<T>() * scale;
-                            var pixelLengthX = seg.Length * scale;
-                            if (pixelLengthX < 1)
-                                pixelLengthX = 1;
-                            _surface.Canvas.DrawRect((float)pixelStartX, 0, (float)pixelLengthX, _y, _paintBack);
-                        }
+                        windowSegments.Add((false, seg));
 
                         _suballocator.Return(seg);
                         lengthRented -= seg.Length;
@@ -187,7 +190,9 @@ namespace PerfTest
                 WindowCountAvg = _windowCountSum / _windowSamples;
             }
 
-            DurationMs = _stopwatch.ElapsedMilliseconds;//.ToString("0.###");
+            elapsedTicks += _stopwatch.ElapsedTicks;
+
+            DurationMs = (long)new TimeSpan(elapsedTicks).TotalMilliseconds;//.ToString("0.###");
 
             if (_y > 0)
             {

@@ -77,7 +77,7 @@ public partial class Program
 
 	static void TestRandom<T>(int minSegLen, int maxSegLen, params ISuballocator<T>[] suballocators) where T : unmanaged
 	{
-		var updateWindowTracker = new UpdateWindowTracker1<T>(.55);// Math.BitDecrement(1.0));
+		var updateWindowTracker = new UpdateWindowTracker1<T>(.1);// Math.BitDecrement(1.0));
 
 		var results = new List<BenchmarkResult>();
 
@@ -86,7 +86,8 @@ public partial class Program
 			results.Add(
 			new Benchmark<T>(suballocator, 0, 1024, 1024)
 				//.Run(.50f, minSegLen, maxSegLen, updateWindowTracker, 10000)
-				.Run(2.0f, maxSegLen, minSegLen, maxSegLen, minSegLen, .75, .5, updateWindowTracker, 2000)
+				//.Run(100.0f, maxSegLen, minSegLen, maxSegLen, minSegLen, .75, .5, updateWindowTracker, 2000)
+				.Run(100.0f, minSegLen, minSegLen, maxSegLen, maxSegLen, .15, .5, updateWindowTracker, 200)
 				);
         }
 

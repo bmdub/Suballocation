@@ -4,7 +4,7 @@ using System.Runtime.InteropServices;
 
 namespace Suballocation.Collections;
 
-internal unsafe class NativeDictionaryTree<TValue> : IDisposable
+public unsafe class NativeDictionaryTree<TValue> : IDisposable
 {
     private readonly long _elementsPerTable;
     private readonly long _tableSize;
@@ -440,7 +440,7 @@ internal unsafe class NativeDictionaryTree<TValue> : IDisposable
 
     private long GetFreeTableLocation()
     {
-        if (_freeStack.Length == 0)
+        if (_freeStack.Count == 0)
         {
             var pElemsNew = (byte*)NativeMemory.Alloc((nuint)_bufferSizeBytes << 1, 1);
             Buffer.MemoryCopy(_pElems, pElemsNew, _bufferSizeBytes * Unsafe.SizeOf<TValue>(), _bufferSizeBytes * Unsafe.SizeOf<TValue>());

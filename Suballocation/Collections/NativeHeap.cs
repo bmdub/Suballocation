@@ -19,7 +19,7 @@ internal unsafe class NativeHeap<T> : IDisposable where T : unmanaged
         _comparer = comparer == default ? Comparer<T>.Default : comparer;
     }
 
-    public long Length => _tail;
+    public long Count => _tail;
 
     public void Enqueue(T elem)
     {

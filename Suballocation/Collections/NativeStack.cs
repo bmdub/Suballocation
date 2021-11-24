@@ -16,7 +16,7 @@ internal unsafe class NativeStack<T> : IDisposable where T : unmanaged
         _bufferLength = initialCapacity;
     }
 
-    public long Length => _head;
+    public long Count => _head;
 
     public void Push(T elem)
     {
