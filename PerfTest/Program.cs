@@ -30,6 +30,8 @@ namespace PerfTest;
 // will starting capacities make better efficiency?
 // try not using reaodnly struct
 // alternate heap traversals and modifications? batch puts? peek over dequeue.
+// window tracker 1 vs 2
+// make tracker non-generic?
 
 // tests
 // random free/rent for fixed level allocations
@@ -57,6 +59,12 @@ public partial class Program
 
     static void Main(string[] args)
     {
+
+
+
+
+
+
 		long length = 1L << 21;
 		int minSegLen = 1;
 		int maxSegLen = 65536 / 10;
@@ -86,8 +94,8 @@ public partial class Program
 			results.Add(
 			new Benchmark<T>(suballocator, 0, 1024, 1024)
 				//.Run(.50f, minSegLen, maxSegLen, updateWindowTracker, 10000)
-				//.Run(100.0f, maxSegLen, minSegLen, maxSegLen, minSegLen, .75, .5, updateWindowTracker, 2000)
-				.Run(100.0f, minSegLen, minSegLen, maxSegLen, maxSegLen, .15, .5, updateWindowTracker, 200)
+				.Run(100.0f, maxSegLen, minSegLen, maxSegLen, minSegLen, .55, .5, updateWindowTracker, 2000)
+				//.Run(100.0f, minSegLen, minSegLen, maxSegLen, maxSegLen, .15, .5, updateWindowTracker, 200)
 				);
         }
 

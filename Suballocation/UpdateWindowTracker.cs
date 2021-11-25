@@ -1,24 +1,34 @@
 ﻿
 namespace Suballocation;
 
+/// <summary>
+/// Provides the ability to track rented memory segments from a suballocator. Specifically, the portions of the buffer that were allocated or updated.
+/// Also can combine update windows automatically based on a configurable distance threshold.
+/// </summary>
+/// <typeparam name="T">A blittable element type that defines the units allocated.</typeparam>
 public class UpdateWindowTracker1<T> where T : unmanaged
 {
     private readonly Stack<NativeMemorySegment<T>> _windowsPrev = new();
     private readonly Stack<NativeMemorySegment<T>> _windowsNext = new();
     private readonly double _minimumFillPercentage;
-    private long _totalWindowLengthUsed;
 
+    /// <summary></summary>
+    /// <param name="minimumFillPercentage">A threshold between 0 and 1. If any two update windows have a "used" to "combined length" ratio above this, then they will be combined.</param>
     public UpdateWindowTracker1(double minimumFillPercentage)
     {
         _minimumFillPercentage = minimumFillPercentage;
     }
 
+    /// <summary>A threshold between 0 and 1. If any two update windows have a "used" to "combined length" ratio above this, then they will be combined.</summary>
     public double MinimumFillPercentage => _minimumFillPercentage;
 
-    public unsafe void Register(ISegment<T> segment)
+    /// <summary>Tells the tracker to note this newly-rented or updated segment.</summary>
+    /// <param name="segment"></param>
+    public unsafe void RegisterUpdate(ISegment<T> segment)
     {
-        _totalWindowLengthUsed += segment.Length;
-
+        // Given where we left off before, navigate the two stacks, which represent the update windows on either side of the previous update.
+        // We will shift update windows between the two stacks while we find a place for this new update window.
+        // We'll also look for opportunities to combine windows.
         bool havePrevWindow = _windowsPrev.TryPeek(out var prevWindow);
         bool haveNextWindow = _windowsNext.TryPeek(out var nextWindow);
 
@@ -73,16 +83,17 @@ public class UpdateWindowTracker1<T> where T : unmanaged
         _windowsPrev.Push(new NativeMemorySegment<T>() { PElems = segment.PElems, Length = segment.Length });
     }
 
+    /// <summary>Used to determine if we can combine two update windows.</summary>
     private unsafe bool CanCombine(T* pElemsPrev, long sizePrev, T* pElemsNext, long sizeNext)
     {
-        //var diff = (pElemsNext + lengthNext - pElemsPrev);
-        //var value = (lengthNext + lengthPrev) / (double)((long)pElemsNext + lengthNext - (long)pElemsPrev);
-        //var thresh = (_minimumFillPercentage / (_windowsPrev.Count + _windowsNext.Count));
-        return (sizeNext + sizePrev) / (double)((long)pElemsNext + sizeNext - (long)pElemsPrev) >= (_minimumFillPercentage);// / (_windowsPrev.Count + _windowsNext.Count));
+        return (sizeNext + sizePrev) / (double)((long)pElemsNext + sizeNext - (long)pElemsPrev) >= _minimumFillPercentage;
     }
 
+    /// <summary>Builds the final set of optimized/combined update windows based on the registered segment updates.</summary>
+    /// <returns></returns>
     public unsafe UpdateWindows<T> BuildUpdateWindows()
     {
+        // Do one final pass to try and combine the update windows we have.
         while (_windowsPrev.TryPop(out var window))
         {
             _windowsNext.Push(window);
@@ -102,9 +113,10 @@ public class UpdateWindowTracker1<T> where T : unmanaged
             }
         }
 
-        return new UpdateWindows<T>(windows, _totalWindowLengthUsed);
+        return new UpdateWindows<T>(windows);
     }
 
+    /// <summary>Clears the tracker of all state, so it can be reused.</summary>
     public void Clear()
     {
         _windowsPrev.Clear();
@@ -112,30 +124,39 @@ public class UpdateWindowTracker1<T> where T : unmanaged
     }
 }
 
+/// <summary>
+/// Provides the ability to track rented memory segments from a suballocator. Specifically, the portions of the buffer that were allocated or updated.
+/// Also can combine update windows automatically based on a configurable distance threshold.
+/// </summary>
+/// <typeparam name="T">A blittable element type that defines the units allocated.</typeparam>
 public class UpdateWindowTracker2<T> where T : unmanaged
 {
     private static readonly Comparer<NativeMemorySegment<T>> _segmentComparer;
     private readonly List<NativeMemorySegment<T>> _olderWindows = new();
     private readonly double _minimumFillPercentage;
     private NativeMemorySegment<T> _currentWindow;
-    private long _totalWindowLengthUsed;
 
     static unsafe UpdateWindowTracker2()
     {
         _segmentComparer = Comparer<NativeMemorySegment<T>>.Create((a, b) => ((IntPtr)a.PElems).CompareTo((IntPtr)b.PElems));
     }
 
+    /// <summary></summary>
+    /// <param name="minimumFillPercentage">A threshold between 0 and 1. If any two update windows have a "used" to "combined length" ratio above this, then they will be combined.</param>
     public UpdateWindowTracker2(double minimumFillPercentage)
     {
         _minimumFillPercentage = minimumFillPercentage;
     }
 
+    /// <summary>A threshold between 0 and 1. If any two update windows have a "used" to "combined length" ratio above this, then they will be combined.</summary>
     public double MinimumFillPercentage => _minimumFillPercentage;
 
-    public unsafe void Register(ISegment<T> segment)
+    /// <summary>Tells the tracker to note this newly-rented or updated segment.</summary>
+    /// <param name="segment"></param>
+    public unsafe void RegisterUpdate(ISegment<T> segment)
     {
-        _totalWindowLengthUsed += segment.Length;
-
+        // Given the previous segment update, see if this new segment can be combined with the previous one.
+        // Otherwise, record it for later optimization.
         if (_currentWindow.Length == 0)
         {
             _currentWindow = new NativeMemorySegment<T>() { PElems = segment.PElems, Length = segment.Length };
@@ -144,17 +165,17 @@ public class UpdateWindowTracker2<T> where T : unmanaged
 
         if (segment.PElems < _currentWindow.PElems)
         {
-            if (CanCombine(segment.PElems, segment.Length, _currentWindow.PElems, _currentWindow.Length))
+            if (CanCombine(segment.PElems, segment.LengthBytes, _currentWindow.PElems, _currentWindow.LengthBytes))
             {
-                _currentWindow = _currentWindow with { PElems = segment.PElems, Length = _currentWindow.Length + segment.Length };
+                _currentWindow = _currentWindow with { PElems = segment.PElems, Length = (_currentWindow.LengthBytes + segment.LengthBytes) / Unsafe.SizeOf<T>() };
                 return;
             }
         }
         else
         {
-            if (CanCombine(_currentWindow.PElems, _currentWindow.Length, segment.PElems, segment.Length))
+            if (CanCombine(_currentWindow.PElems, _currentWindow.LengthBytes, segment.PElems, segment.LengthBytes))
             {
-                _currentWindow = _currentWindow with { PElems = _currentWindow.PElems, Length = _currentWindow.Length + segment.Length };
+                _currentWindow = _currentWindow with { PElems = _currentWindow.PElems, Length = (_currentWindow.LengthBytes + segment.LengthBytes) / Unsafe.SizeOf<T>() };
                 return;
             }
         }
@@ -163,13 +184,17 @@ public class UpdateWindowTracker2<T> where T : unmanaged
         _currentWindow = new NativeMemorySegment<T>() { PElems = segment.PElems, Length = segment.Length };
     }
 
-    private unsafe bool CanCombine(T* pElemsPrev, long lengthPrev, T* pElemsNext, long lengthNext)
+    /// <summary>Used to determine if we can combine two update windows.</summary>
+    private unsafe bool CanCombine(T* pElemsPrev, long sizePrev, T* pElemsNext, long sizeNext)
     {
-        return (lengthNext + lengthPrev) / (pElemsNext + lengthNext - pElemsPrev) > _minimumFillPercentage;
+        return (sizeNext + sizePrev) / (double)((long)pElemsNext + sizeNext - (long)pElemsPrev) >= _minimumFillPercentage;
     }
 
+    /// <summary>Builds the final set of optimized/combined update windows based on the registered segment updates.</summary>
+    /// <returns></returns>
     public unsafe UpdateWindows<T> BuildUpdateWindows()
     {
+        // Do one final pass to try and combine the update windows we have.
         if (_currentWindow.Length > 0)
         {
             _olderWindows.Add(_currentWindow);
@@ -182,9 +207,9 @@ public class UpdateWindowTracker2<T> where T : unmanaged
 
         foreach (var window in _olderWindows)
         {
-            if (windows.Count > 0 && CanCombine(windows[^1].PElems, windows[^1].Length, window.PElems, window.Length))
+            if (windows.Count > 0 && CanCombine(windows[^1].PElems, windows[^1].LengthBytes, window.PElems, window.LengthBytes))
             {
-                windows[^1] = window with { PElems = windows[^1].PElems, Length = window.Length + windows[^1].Length };
+                windows[^1] = window with { PElems = windows[^1].PElems, Length = ((long)window.PElems + window.LengthBytes - (long)windows[^1].PElems) / Unsafe.SizeOf<T>() };
             }
             else
             {
@@ -192,13 +217,13 @@ public class UpdateWindowTracker2<T> where T : unmanaged
             }
         }
 
-        return new UpdateWindows<T>(windows, _totalWindowLengthUsed);
+        return new UpdateWindows<T>(windows);
     }
 
+    /// <summary>Clears the tracker of all state, so it can be reused.</summary>
     public void Clear()
     {
         _olderWindows.Clear();
         _currentWindow = default;
-        _totalWindowLengthUsed = 0;
     }
 }

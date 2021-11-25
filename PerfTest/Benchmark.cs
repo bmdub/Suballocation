@@ -18,7 +18,7 @@ namespace PerfTest
         public string Allocator { get; init; }
         public long DurationMs { get; private set; }
         public long RentalCount { get; private set; }
-        public long LengthRentedActual { get; private set; }
+        public long LengthRented { get; private set; }
         public long WindowTotalLengthAvg { get; private set; }
         public long WindowSpreadMax { get; private set; }
         public long WindowSpreadAvg { get; private set; }
@@ -110,7 +110,7 @@ namespace PerfTest
                         var seg = _suballocator.Rent(lengthToRent);
                         lengthRentedSum += lengthToRent;
                         lengthRentedWindow += lengthToRent;
-                        LengthRentedActual += seg.Length;
+                        LengthRented += seg.Length;
                         lengthRented += seg.Length;
                         segments.Add(seg);
                         windowSegments.Add((true, seg));
@@ -123,7 +123,7 @@ namespace PerfTest
                             elapsedTicks += _stopwatch.ElapsedTicks;
 
                             for (int i = 0; i < windowSegments.Count; i++)
-                                windowTracker.Register(windowSegments[i].Segment);
+                                windowTracker.RegisterUpdate(windowSegments[i].Segment);
 
                             for (int i = 0; i < windowSegments.Count && _y > 0; i++)
                             {
@@ -146,7 +146,7 @@ namespace PerfTest
                             _windowTotalLengthSum += updateWindows.TotalLength;
                             WindowSpreadMax = Math.Max(WindowSpreadMax, updateWindows.SpreadLength);
                             _windowSpreadSum += updateWindows.SpreadLength;
-                            _windowCountSum += updateWindows.Windows.Count;
+                            _windowCountSum += updateWindows.Count;
                             _windowSamples++;
 
                             _y--;

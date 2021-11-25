@@ -26,9 +26,11 @@ namespace Suballocation
             CapacityLength = length;
         }
 
-        public long LengthBytesUsed => UsedLength * Unsafe.SizeOf<T>();
+        public long UsedBytes => UsedLength * Unsafe.SizeOf<T>();
 
-        public long LengthBytesTotal => CapacityLength * Unsafe.SizeOf<T>();
+        public long CapacityBytes => CapacityLength * Unsafe.SizeOf<T>();
+
+        public long FreeBytes { get => CapacityBytes - UsedBytes; }
 
         public long Allocations { get; private set; }
 
@@ -36,7 +38,11 @@ namespace Suballocation
 
         public long CapacityLength { get; init; }
 
+        public long FreeLength { get => CapacityLength - UsedLength; }
+
         public T* PElems => throw new NotImplementedException();
+
+        public byte* PBytes => throw new NotImplementedException();
 
         public NativeMemorySegmentResource<T> RentResource(long length = 1)
         {

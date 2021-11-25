@@ -13,7 +13,7 @@ public unsafe interface ISuballocator : IDisposable
     public long CapacityBytes { get; }
 
     /// <summary>The total size of the free buffer space available to the allocator (not necessarily contiguous).</summary>
-    public long FreeBytes { get => CapacityBytes - UsedBytes; }
+    public long FreeBytes { get; }
 
     /// <summary>The number of outsanding rented segments.</summary>
     public long Allocations { get; }
@@ -34,7 +34,7 @@ public unsafe interface ISuballocator<T> : ISuballocator where T : unmanaged
     public long CapacityLength { get; }
 
     /// <summary>The total unit count free elements available to the allocator (not necessarily contiguous).</summary>
-    public long FreeLength { get => CapacityBytes - UsedBytes; }
+    public long FreeLength { get; }
 
     /// <summary>Pointer to the start of the pinned backing buffer.</summary>
     public T* PElems { get; }

@@ -17,6 +17,9 @@ public unsafe sealed class SequentialFitSuballocator<T> : ISuballocator<T>, IDis
     private NativeQueue<IndexEntry> _futureQueue = new();
     private bool _disposed;
 
+    /// <summary>Creates a suballocator instance and allocates a buffer of the specified length.</summary>
+    /// <param name="length">Element length of the buffer to allocate.</param>
+    /// <exception cref="ArgumentOutOfRangeException"></exception>
     public SequentialFitSuballocator(long length)
     {
         if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot allocate a backing buffer of size <= 0.");
@@ -30,19 +33,27 @@ public unsafe sealed class SequentialFitSuballocator<T> : ISuballocator<T>, IDis
         _indexQueue.Enqueue(new IndexEntry() { Index = 0, Length = length });
     }
 
-    public SequentialFitSuballocator(T* pData, long length)
+    /// <summary>Creates a suballocator instance using a preallocated backing buffer.</summary>
+    /// <param name="pElems">A pointer to a pinned memory buffer to use as the backing buffer for this suballocator.</param>
+    /// <param name="length">Element length of the given memory buffer.</param>
+    /// <exception cref="ArgumentOutOfRangeException"></exception>
+    /// <exception cref="ArgumentNullException"></exception>
+    public SequentialFitSuballocator(T* pElems, long length)
     {
-        if (pData == null) throw new ArgumentNullException(nameof(pData));
+        if (pElems == null) throw new ArgumentNullException(nameof(pElems));
         if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot allocate a backing buffer of size <= 0.");
 
         CapacityLength = length;
         _allocatedIndexes = new NativeBitArray(length);
 
-        _pElems = pData;
+        _pElems = pElems;
 
         _indexQueue.Enqueue(new IndexEntry() { Index = 0, Length = length });
     }
 
+    /// <summary>Creates a suballocator instance using a preallocated backing buffer.</summary>
+    /// <param name="data">A region of memory to use as the backing buffer for this suballocator.</param>
+    /// <exception cref="ArgumentOutOfRangeException"></exception>
     public SequentialFitSuballocator(Memory<T> data)
     {
         CapacityLength = data.Length;
@@ -58,11 +69,15 @@ public unsafe sealed class SequentialFitSuballocator<T> : ISuballocator<T>, IDis
 
     public long CapacityBytes => CapacityLength * Unsafe.SizeOf<T>();
 
+    public long FreeBytes { get => CapacityBytes - UsedBytes; }
+
     public long Allocations { get; private set; }
 
     public long UsedLength { get; private set; }
 
     public long CapacityLength { get; init; }
+
+    public long FreeLength { get => CapacityLength - UsedLength; }
 
     public T* PElems => _pElems;
 
@@ -71,7 +86,7 @@ public unsafe sealed class SequentialFitSuballocator<T> : ISuballocator<T>, IDis
     public NativeMemorySegmentResource<T> RentResource(long length = 1)
     {
         if (_disposed) throw new ObjectDisposedException(nameof(SequentialFitSuballocator<T>));
-        if (length == 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot rent a segment of size 0.");
+        if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length), $"Segment length must be >= 1.");
 
         var rawSegment = Alloc(length);
 
@@ -88,7 +103,7 @@ public unsafe sealed class SequentialFitSuballocator<T> : ISuballocator<T>, IDis
     public NativeMemorySegment<T> Rent(long length = 1)
     {
         if (_disposed) throw new ObjectDisposedException(nameof(SequentialFitSuballocator<T>));
-        if (length == 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot rent a segment of size 0.");
+        if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length), $"Segment length must be >= 1.");
 
         var rawSegment = Alloc(length);
 
@@ -109,10 +124,14 @@ public unsafe sealed class SequentialFitSuballocator<T> : ISuballocator<T>, IDis
             throw new OutOfMemoryException();
         }
 
+        // If we turn around twice whilst searching, that means we've searched the entire collection.
         int swaps = 0;
 
+        // Find a large-enough free segment to return.
         for (; ; )
         {
+            // If we've reached the end of the segment queue, start over from the beginning of the queue.
+            // Swap queues to the travered queue.
             if (_indexQueue.Count == 0)
             {
                 var temp = _indexQueue;
@@ -132,12 +151,14 @@ public unsafe sealed class SequentialFitSuballocator<T> : ISuballocator<T>, IDis
             {
                 var indexEntry = _indexQueue.Dequeue();
 
+                // If this segment has already been allocated, ignore.
                 if (_allocatedIndexes[indexEntry.Index] == true)
                 {
                     _futureQueue.Enqueue(indexEntry);
                     continue;
                 }
 
+                // See if we can combine this free block with the next free one(s).
                 while (_indexQueue.TryPeek(out var nextIndexEntry) &&
                     nextIndexEntry.Index == indexEntry.Index + indexEntry.Length &&
                     _allocatedIndexes[nextIndexEntry.Index] == false)
@@ -150,8 +171,11 @@ public unsafe sealed class SequentialFitSuballocator<T> : ISuballocator<T>, IDis
 
                 if (indexEntry.Length >= length)
                 {
+                    // Block is big enough to use...
+
                     if (indexEntry.Length > length)
                     {
+                        // Block is too big; split into 1 occupied and 1 free block.
                         var leftoverEntry = new IndexEntry() { Index = indexEntry.Index + length, Length = indexEntry.Length - length };
                         indexEntry = indexEntry with { Length = length };
 
@@ -168,6 +192,7 @@ public unsafe sealed class SequentialFitSuballocator<T> : ISuballocator<T>, IDis
                 }
                 else
                 {
+                    // Ignore this block; queue it up for later traversal.
                     _futureQueue.Enqueue(indexEntry);
                 }
             }
@@ -196,6 +221,7 @@ public unsafe sealed class SequentialFitSuballocator<T> : ISuballocator<T>, IDis
         _indexQueue.Clear();
         _futureQueue.Clear();
         _allocatedIndexes.Clear();
+
         _indexQueue.Enqueue(new IndexEntry() { Index = 0, Length = CapacityLength });
     }
 
