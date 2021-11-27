@@ -1,6 +1,6 @@
 ﻿using System.Buffers;
 
-namespace Suballocation;
+namespace Suballocation.Suballocators;
 
 /// <summary>
 /// A sequential-fit suballocator that returns the nearest free next segment that is large enough to fulfill the request.

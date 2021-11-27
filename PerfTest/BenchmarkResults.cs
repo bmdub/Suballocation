@@ -1,98 +1,113 @@
 ﻿using ScottPlot;
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace PerfTest
 {
+    /// <summary>
+    /// Contains extensions to a set of benchmark results for displaying results.
+    /// </summary>
     internal static class BenchmarkResults
     {
-        public static void ShowImages(this IEnumerable<BenchmarkResult> results)
+        /// <summary>Displays all of the allocation pattern images.</summary>
+        public static void ShowPatternImages(this IEnumerable<Benchmark> results)
         {
             foreach (var result in results)
-                result.Benchmark.ShowImage();
+                result.ShowPatternImage();
         }
 
-        public static void WriteToGroupedBarGraph(this IEnumerable<BenchmarkResult> results)
+        /// <summary>Shows a grouped bar graph.</summary>
+        /// <param name="results"></param>
+        /// <param name="name">The unique name to use for this graph and its file.</param>
+        /// <param name="imageWidth">The image width.</param>
+        /// <param name="imageHeight">The image height.</param>
+        /// <param name="keyNameGroup">The key of the benchmark value to use for grouping.</param>
+        /// <param name="keyNameLabel">The key of the benchmark value to use for labeling each bar.</param>
+        /// <param name="keyNameValue">The key of the benchmark value to use for the value of each bar.</param>
+        public static void ShowGroupedBarGraph(this IEnumerable<Benchmark> results, string imageFolder, string name, int imageWidth, int imageHeight, string keyNameGroup, string keyNameLabel, string keyNameValue)
         {
-            var plt = new ScottPlot.Plot(1200, 400);
+            // Create the image file.
+            var fileName = Path.Combine(imageFolder, $"{name}.png");
 
-            var groups = results.GroupBy(result => result.GetValue("Allocator"));
+            var plot = new Plot(imageWidth, imageHeight);
 
-            // add the grouped bar plots and show a legend
-            plt.AddBarGroups(
-                results.Select(result => result.GetValue("Name")).Distinct().ToArray(),
+            var groups = results.GroupBy(result => result.GetStat(keyNameGroup));
+
+            plot.AddBarGroups(
+                results.Select(result => result.GetStat(keyNameLabel)).Distinct().ToArray(),
                 groups.Select(group => group.Key).ToArray(),
-                groups.Select(group => group.Select(result => double.Parse(result.GetValue("DurationMs"))).ToArray()).ToArray(),
+                groups.Select(group => group.Select(result => double.Parse(result.GetStat(keyNameValue))).ToArray()).ToArray(),
                 groups.Select(group => group.Select(result => 0.0).ToArray()).ToArray());
-            plt.Legend(location: Alignment.UpperLeft);
+            plot.Legend(location: Alignment.UpperLeft);
 
-            // adjust axis limits so there is no padding below the bar graph
-            plt.SetAxisLimits(yMin: 0);
-            plt.YLabel("milliseconds");
-            plt.SaveFig("bar_group.png");
+            plot.YLabel(keyNameValue);
+            plot.XLabel(keyNameLabel);
 
+            plot.SetAxisLimits(yMin: 0);
 
+            plot.SaveFig(fileName);
 
+            // Open the image file.
             Process process = new Process();
             ProcessStartInfo startInfo = new ProcessStartInfo
             {
                 UseShellExecute = true,
                 WindowStyle = ProcessWindowStyle.Hidden,
-                FileName = "bar_group.png",
+                FileName = fileName,
             };
             process.StartInfo = startInfo;
             process.Start();
         }
 
-        public static void WriteToBarGraph(this IEnumerable<BenchmarkResult> results, string name, string xLabel, string yLabel, 
-            Func<BenchmarkResult, string> labelSelector, Func<BenchmarkResult, double> valueSelector)
+        /// <summary>Shows a bar graph.</summary>
+        /// <param name="results"></param>
+        /// <param name="name">The unique name to use for this graph and its file.</param>
+        /// <param name="imageWidth">The image width.</param>
+        /// <param name="imageHeight">The image height.</param>
+        /// <param name="keyNameX">The key of the benchmark value to use for the horizontal column.</param>
+        /// <param name="keyNameY">The key of the benchmark value to use for the vertical column.</param>
+        public static void ShowBarGraph(this IEnumerable<Benchmark> results, string imageFolder, string name, int imageWidth, int imageHeight, string keyNameX, string keyNameY)
         {
-            var plt = new ScottPlot.Plot(1000, 400);
+            // Create the image file.
+            var fileName = Path.Combine(imageFolder, $"{name}.png");
 
-            //var bar = plt.AddBar(results.Select(result => double.Parse(result.GetValue("DurationMs"))).ToArray());
-            plt.XTicks(results.Select(result => labelSelector(result)).ToArray());
-            plt.XLabel(xLabel);
-            plt.YLabel(yLabel);
+            var plot = new Plot(imageWidth, imageHeight);
 
-            var bar = plt.AddBar(results.Select(result => valueSelector(result)).ToArray());
+            plot.XTicks(results.Select(result => result.GetStat(keyNameX)).ToArray());
+            plot.XLabel(keyNameX);
+            plot.YLabel(keyNameY);
+
+            var bar = plot.AddBar(results.Select(result => double.Parse(result.GetStat(keyNameY))).ToArray());
             bar.ShowValuesAboveBars = true;
 
-            // adjust axis limits so there is no padding below the bar graph
-            plt.SetAxisLimits(yMin: 0);
+            plot.SetAxisLimits(yMin: 0);
 
-            plt.SaveFig($"{name}.png");
+            plot.SaveFig(fileName);
 
+            // Open the image file.
             Process process = new Process();
             ProcessStartInfo startInfo = new ProcessStartInfo
             {
                 UseShellExecute = true,
                 WindowStyle = ProcessWindowStyle.Hidden,
-                FileName = $"{name}.png",
+                FileName = fileName,
             };
             process.StartInfo = startInfo;
             process.Start();
         }
 
-        public static void WriteToConsole(this IEnumerable<IGrouping<string, BenchmarkResult>> resultGroups)
+        /// <summary>Outputs benchmark values to console as a table.</summary>
+        /// <param name="results"></param>
+        /// <param name="name">The name for this table.</param>
+        public static void ShowConsole(this IEnumerable<Benchmark> results, string name)
         {
-            foreach(var group in resultGroups)
-            {
-                Console.WriteLine();
-                group.WriteToConsole();
-            }
-        }
+            Console.WriteLine(name);
 
-        public static void WriteToConsole(this IEnumerable<BenchmarkResult> results)
-        {
+            // Gather display length requirements for each column.
             var lengthsByHeader =
                 results.SelectMany(result => result.GetColumnMetadata())
-                    .GroupBy(md => md.Header)
-                    .Select(group => group.Aggregate((a, b) => (a.Header, Math.Max(a.Length, b.Length))))
-                    .ToDictionary(md => md.Header, md => md.Length);
+                    .GroupBy(md => md.Key)
+                    .Select(group => group.Aggregate((a, b) => (a.Key, Math.Max(a.Length, b.Length))))
+                    .ToDictionary(md => md.Key, md => md.Length);
 
             Console.WriteLine();
 
@@ -104,13 +119,14 @@ namespace PerfTest
 
             Console.WriteLine();
 
+            // Write the benchmark values.
             foreach (var result in results)
             {
-                foreach (var pair in result.GetColumnValues())
+                foreach (var pair in result.GetStats())
                 {
                     string str = "";
 
-                    if(lengthsByHeader.TryGetValue(pair.Header, out var length) == true)
+                    if(lengthsByHeader.TryGetValue(pair.Key, out var length) == true)
                     {
                         str = pair.Value;
                     }

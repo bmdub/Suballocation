@@ -8,7 +8,7 @@ namespace Suballocation.NUnit
         [Test]
         public unsafe void CombinedTest()
         {
-            var tracker = new UpdateWindowTracker1<int>(.51);
+            var tracker = new UpdateWindowTracker<int>(.51);
 
             long offset = 0;
             for (int i = 1; i <= 255; i++)
@@ -25,7 +25,7 @@ namespace Suballocation.NUnit
         [Test]
         public unsafe void NonCombinedTest()
         {
-            var tracker = new UpdateWindowTracker1<int>(.51);
+            var tracker = new UpdateWindowTracker<int>(.51);
 
             long offset = 0;
             for (int i = 1; i <= 255; i++)
@@ -42,7 +42,7 @@ namespace Suballocation.NUnit
         [Test]
         public unsafe void ClearTest()
         {
-            var tracker = new UpdateWindowTracker1<int>(.51);
+            var tracker = new UpdateWindowTracker<int>(.51);
 
             for (int i = 1; i <= 255; i++)
             {

@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using Suballocation.Suballocators;
 
 namespace Suballocation.NUnit
 {

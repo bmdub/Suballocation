@@ -2,247 +2,289 @@
 using Suballocation;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using Suballocation.Suballocators;
 
 namespace PerfTest
 {
-    interface IBenchmark
+    /// <summary>
+    /// Represents benchmark results.
+    /// </summary>
+    internal class Benchmark
     {
-        IEnumerable<string> GetColumnHeaders();
-        IEnumerable<string> GetColumnValues();
-        void ShowImage();
-    }
+        private readonly string _imageFileName;
+        private readonly Dictionary<string, string> _valuesByName = new();
 
-    internal class Benchmark<T> : IBenchmark, IDisposable where T : unmanaged
-    {
-        public string Name { get => this.GetType().Name.Replace("Benchmark`1", ""); }
-        public string Allocator { get; init; }
-        public long DurationMs { get; private set; }
-        public long RentalCount { get; private set; }
-        public long LengthRented { get; private set; }
-        public long WindowTotalLengthAvg { get; private set; }
-        public long WindowSpreadMax { get; private set; }
-        public long WindowSpreadAvg { get; private set; }
-        public long WindowCountAvg { get; private set; }
-        public bool RanOutOfSpace { get; private set; }
-
-        private ISuballocator<T> _suballocator;
-        private Random _random;
-        private Stopwatch _stopwatch;
-        private int _seed;
-        private long _windowSamples;
-        private long _windowTotalLengthSum;
-        private long _windowSpreadSum;
-        private long _windowCountSum;
-        private SKImageInfo _imageInfo;
-        private SKSurface _surface;
-        private SKPaint _paintFore;
-        private SKPaint _paintBack;
-        private int _y;
-
-        public Benchmark(ISuballocator<T> suballocator, int seed, int imageWidth, int imageHeight)
+        /// <summary></summary>
+        /// <param name="imageFileName">The file name (without extension) to use for the pattern image.</param>
+        /// <param name="valuesByName">Dictionary of benchmark names->results.</param>
+        public Benchmark(string imageFileName, Dictionary<string, string> valuesByName)
         {
-            Allocator = suballocator.GetType().Name;
-            _suballocator = suballocator;
-            _seed = seed;
-            _random = new Random(seed);
-            _stopwatch = new Stopwatch();
-
-            _imageInfo = new SKImageInfo(imageWidth, imageHeight);
-            _surface = SKSurface.Create(_imageInfo);
-            _surface.Canvas.Clear(SKColors.Black);
-            _paintFore = new SKPaint
-            {
-                Color = SKColors.Red,
-                Style = SKPaintStyle.Fill,
-                //TextAlign = SKTextAlign.Center,
-                //TextSize = 24
-            };
-            _paintBack = new SKPaint
-            {
-                Color = SKColors.Black,
-                Style = SKPaintStyle.Fill,
-            };
-
-            _y = _imageInfo.Height - 1;
+            _imageFileName = imageFileName;
+            _valuesByName = valuesByName;
         }
 
-        public unsafe BenchmarkResult Run(
-            float countPct,
+        /// <summary>
+        /// Runs a benchmark.
+        /// </summary>
+        /// <typeparam name="T">Allocation element type.</typeparam>
+        /// <param name="imageFolder">The folder in which to place the images.</param>
+        /// <param name="name">The name of the benchmark. This along with the tag uniquely identify the benchmark.</param>
+        /// <param name="tag">A tag for categorization. This along with the name uniquely identify the benchmark.</param>
+        /// <param name="suballocator">A suballocator instance to use.</param>
+        /// <param name="seed">A seed for the randomizer.</param>
+        /// <param name="imageWidth">The width of the resulting pattern image.</param>
+        /// <param name="imageHeight">The height of the resulting pattern image.</param>
+        /// <param name="totalLengthToRent">The length of elements to rent in total.</param>
+        /// <param name="minSegmentLenInitial">The minimum segment length to rent, initially, before linear interpolation.</param>
+        /// <param name="minSegmentLenFinal">The minimum segment length to rent, finally, after linear interpolation.</param>
+        /// <param name="maxSegmentLenInitial">The maximum segment length to rent, initially, before linear interpolation.</param>
+        /// <param name="maxSegmentLenFinal">The maximum segment length to rent, finally, after linear interpolation.</param>
+        /// <param name="desiredFillPercentage">The percentage from 0 to 1 of the suballocator's length to fill with rentals.</param>
+        /// <param name="youthReturnFactor">A weighting from 0 to 1 indicating propensity for newer segments to be returned to the pool over older ones.</param>
+        /// <param name="updateWindowFillPercentage">The minimum update rate for a portion of the buffer to be coalesced into an update window.</param>
+        /// <param name="updatesPerWindow">The number of rents/returns to assign to each "update" or build of the update windows.</param>
+        /// <returns></returns>
+        public static unsafe Benchmark Run<T>(
+            string imageFolder,
+            string name,
+            string tag,
+            ISuballocator<T> suballocator,
+            int seed,
+            int imageWidth,
+            int imageHeight,
+            long totalLengthToRent,
             int minSegmentLenInitial,
             int minSegmentLenFinal,
             int maxSegmentLenInitial,
             int maxSegmentLenFinal,
-            double desiredFillRatio,
+            double desiredFillPercentage,
             double youthReturnFactor,
-            UpdateWindowTracker1<T> windowTracker,
+            double updateWindowFillPercentage,
             int updatesPerWindow)
+            where T : unmanaged
         {
-            long totalLengthToRent = (long)(countPct * _suballocator.CapacityLength);
-            long lengthRented = 0;
-            long lengthRentedSum = 0;
+            long lengthRentedCurrent = 0;
+            long lengthRentedTotal = 0;
             long lengthRentedWindow = 0;
+            long windowSetLengthTotal = 0;
+            long windowSetSpreadMax = 0;
+            long windowSetSpreadTotal = 0;
+            long windowCountTotal = 0;
+            long windowBuilds = 0;
+            long elapsedTicks = 0;
             int minSegmentLen = minSegmentLenInitial;
             int maxSegmentLen = maxSegmentLenInitial;
-            long elapsedTicks = 0;
+            bool outOfMemory = false;
 
-            windowTracker.Clear();
-            List<NativeMemorySegment<T>> segments = new List<NativeMemorySegment<T>>((int)totalLengthToRent);
-            List<(bool Rental, NativeMemorySegment<T> Segment)> windowSegments = new List<(bool Rental, NativeMemorySegment<T> Segment)>(updatesPerWindow);
+            var imageInfo = new SKImageInfo(imageWidth, imageHeight);
+            var surface = SKSurface.Create(imageInfo);
+            double imageScale = imageInfo.Width / (double)suballocator.CapacityLength;
+            var paintFore = new SKPaint { Color = SKColors.Red };
+            var paintBack = new SKPaint { Color = SKColors.Black };
+            var imageYOffset = imageInfo.Height - 1;
+            surface.Canvas.Clear(SKColors.Black);
 
-            _stopwatch.Restart();
+            List<NativeMemorySegment<T>> segments = new();
+            List<(bool Rental, NativeMemorySegment<T> Segment)> windowSegments = new(updatesPerWindow);
+            var windowTracker = new UpdateWindowTracker<T>(updateWindowFillPercentage);
+            var random = new Random(seed);
 
-            try
+            var stopwatch = new Stopwatch();
+            stopwatch.Start();
+
+            // Rent/return segment loop
+            while (lengthRentedTotal < totalLengthToRent)
             {
-                while (lengthRentedSum < totalLengthToRent)
+                // Randomly choose whether to rent a segment or return an existing one.
+                // Weight this decision by the desired fill ratio for the buffer.
+                double currentFillRatio = lengthRentedCurrent / (double)suballocator.CapacityLength;
+
+                var rentReturnThreshold = .5 + desiredFillPercentage - currentFillRatio;
+
+                if (random.NextDouble() < rentReturnThreshold)
                 {
-                    minSegmentLen = (int)((lengthRentedSum / (double)totalLengthToRent) * (minSegmentLenFinal - minSegmentLenInitial) + minSegmentLenInitial);
-                    maxSegmentLen = (int)((lengthRentedSum / (double)totalLengthToRent) * (maxSegmentLenFinal - maxSegmentLenInitial) + maxSegmentLenInitial);
+                    // Rent a segment of random size.
+                    // Size range determined by linearly interpolating input min/max segment lengths over time.
+                    minSegmentLen = (int)(lengthRentedTotal / (double)totalLengthToRent * (minSegmentLenFinal - minSegmentLenInitial) + minSegmentLenInitial);
+                    maxSegmentLen = (int)(lengthRentedTotal / (double)totalLengthToRent * (maxSegmentLenFinal - maxSegmentLenInitial) + maxSegmentLenInitial);
 
-                    double fillRatio = lengthRented / (double)_suballocator.CapacityLength;
+                    var lengthToRent = random.Next(minSegmentLen, maxSegmentLen + 1);
 
-                    var fillRatioDiff = desiredFillRatio - fillRatio;
+                    NativeMemorySegment<T> segment;
 
-                    var threshold = .5 + fillRatioDiff;
-
-                    if (_random.NextDouble() < threshold)
+                    try
                     {
-                        var lengthToRent = _random.Next(minSegmentLen, maxSegmentLen + 1);
-                        var seg = _suballocator.Rent(lengthToRent);
-                        lengthRentedSum += lengthToRent;
-                        lengthRentedWindow += lengthToRent;
-                        LengthRented += seg.Length;
-                        lengthRented += seg.Length;
-                        segments.Add(seg);
-                        windowSegments.Add((true, seg));
-                        RentalCount++;
+                        segment = suballocator.Rent(lengthToRent);
+                    }
+                    catch (OutOfMemoryException)
+                    {
+                        outOfMemory = true;
+                        break;
+                    }
 
-                        if (lengthRentedWindow >= updatesPerWindow)
+                    segments.Add(segment);
+                    windowSegments.Add((true, segment));
+
+                    lengthRentedCurrent += segment.Length;
+                    lengthRentedTotal += segment.Length;
+                    lengthRentedWindow += segment.Length;
+
+                    // After every N rentals, "apply" them; coalesce into update windows.
+                    if (lengthRentedWindow >= updatesPerWindow)
+                    {
+                        stopwatch.Stop();
+                        elapsedTicks += stopwatch.ElapsedTicks;
+
+                        for (int i = 0; i < windowSegments.Count; i++)
                         {
-                            _stopwatch.Stop();
+                            windowTracker.RegisterUpdate(windowSegments[i].Segment);
+                        }
 
-                            elapsedTicks += _stopwatch.ElapsedTicks;
+                        var updateWindows = windowTracker.BuildUpdateWindows();
 
+                        windowSetLengthTotal += updateWindows.TotalLength;
+                        windowSetSpreadMax = Math.Max(windowSetSpreadMax, updateWindows.SpreadLength);
+                        windowSetSpreadTotal += updateWindows.SpreadLength;
+                        windowCountTotal += updateWindows.Count;
+                        windowBuilds++;
+
+                        windowTracker.Clear();
+
+                        // If there's room left, display a visual line of the new alocations / returns.
+                        if (imageYOffset >= 0)
+                        {
                             for (int i = 0; i < windowSegments.Count; i++)
-                                windowTracker.RegisterUpdate(windowSegments[i].Segment);
-
-                            for (int i = 0; i < windowSegments.Count && _y > 0; i++)
                             {
-                                double scale = _imageInfo.Width / (double)_suballocator.CapacityLength;
-                                var pixelStartX = ((long)(windowSegments[i].Segment.PElems) - (long)_suballocator.PElems) / Unsafe.SizeOf<T>() * scale;
-                                //Console.WriteLine(pixelStartX);
-                                var pixelLengthX = windowSegments[i].Segment.Length * scale;
-                                if (pixelLengthX < 1)
-                                    pixelLengthX = 1;
-                                _surface.Canvas.DrawRect((float)pixelStartX, 0, (float)pixelLengthX, _y, windowSegments[i].Rental ? _paintFore : _paintBack);
+                                var offsetX = ((long)windowSegments[i].Segment.PElems - (long)suballocator.PElems) / Unsafe.SizeOf<T>() * imageScale;
+                                var width = Math.Max(1, windowSegments[i].Segment.Length * imageScale);
+
+                                surface.Canvas.DrawRect((float)offsetX, 0, (float)width, imageYOffset, windowSegments[i].Rental ? paintFore : paintBack);
                             }
 
-                            windowSegments.Clear();
-
-                            lengthRentedWindow = 0;
-
-                            var updateWindows = windowTracker.BuildUpdateWindows();
-                            windowTracker.Clear();
-
-                            _windowTotalLengthSum += updateWindows.TotalLength;
-                            WindowSpreadMax = Math.Max(WindowSpreadMax, updateWindows.SpreadLength);
-                            _windowSpreadSum += updateWindows.SpreadLength;
-                            _windowCountSum += updateWindows.Count;
-                            _windowSamples++;
-
-                            _y--;
-
-                            _stopwatch.Restart();
+                            imageYOffset--;
                         }
-                    }
-                    else if (segments.Count > 1)
-                    {
-                        var swapIndex = _random.Next(0, segments.Count);
 
-                        //var swapIndex = (int)(Math.Log2(_random.NextDouble() * 7.0 + 1) / 3 * segments.Count);
-                        //swapIndex = (int)((Math.Log(_random.NextDouble() * Math.E) + 4) / (1 + 4) * segments.Count);
-                        //while(swapIndex < 0 || swapIndex >= segments.Count)
-                        //swapIndex = (int)((Math.Log(_random.NextDouble() * Math.E) + 4) / (1 + 4) * segments.Count);
-
-                        swapIndex = (int)((1.0 - (_random.NextDouble() * youthReturnFactor)) * segments.Count);
-
-                        var seg = segments[swapIndex];
-                        segments[swapIndex] = segments[^1];
-                        segments.RemoveAt(segments.Count - 1);
-
-                        windowSegments.Add((false, seg));
-
-                        _suballocator.Return(seg);
-                        lengthRented -= seg.Length;
+                        lengthRentedWindow = 0;
+                        windowSegments.Clear();
+                        stopwatch.Restart();
                     }
                 }
+                else if (segments.Count > 1)
+                {
+                    // Return a random segment, weighted by age.
+
+                    //var swapIndex = (int)(Math.Log2(_random.NextDouble() * 7.0 + 1) / 3 * segments.Count);
+                    //swapIndex = (int)((Math.Log(_random.NextDouble() * Math.E) + 4) / (1 + 4) * segments.Count);
+                    //while(swapIndex < 0 || swapIndex >= segments.Count)
+                    //swapIndex = (int)((Math.Log(_random.NextDouble() * Math.E) + 4) / (1 + 4) * segments.Count);
+                    var swapIndex = (int)((1.0 - (random.NextDouble() * youthReturnFactor)) * segments.Count);
+
+                    var segment = segments[swapIndex];
+                    segments[swapIndex] = segments[^1];
+                    segments.RemoveAt(segments.Count - 1);
+
+                    windowSegments.Add((false, segment));
+
+                    suballocator.Return(segment);
+
+                    lengthRentedCurrent -= segment.Length;
+                }
             }
-            catch (OutOfMemoryException)
+
+            stopwatch.Stop();
+
+            // Collect statistics
+            Dictionary<string, string> valuesByName = new();
+
+            valuesByName["Name"] = name;
+            valuesByName["Tag"] = tag;
+
+            if (outOfMemory)
             {
-                RanOutOfSpace = true;
+                valuesByName["OOM"] = "yes";
             }
-
-            _stopwatch.Stop();
-
-            if (_windowSamples > 0)
+            else
             {
-                WindowTotalLengthAvg = _windowTotalLengthSum / _windowSamples;
-                WindowSpreadAvg = _windowSpreadSum / _windowSamples;
-                WindowCountAvg = _windowCountSum / _windowSamples;
+                valuesByName["Duration (ms)"] = new TimeSpan(elapsedTicks).TotalMilliseconds.ToString("0.###");
+
+                if (windowBuilds > 0)
+                {
+                    valuesByName["Window Set Length (avg)"] = (windowSetLengthTotal / windowBuilds).ToString("N0");
+                    valuesByName["Window Set Spread (avg)"] = (windowSetSpreadTotal / windowBuilds).ToString("N0");
+                    valuesByName["Window Set Spread (max)"] = windowSetSpreadMax.ToString("N0");
+                    valuesByName["Window Count (avg)"] = (windowCountTotal / windowBuilds).ToString("N0");
+                }
+
+                elapsedTicks += stopwatch.ElapsedTicks;
             }
 
-            elapsedTicks += _stopwatch.ElapsedTicks;
+            // If we didn't fill up the image, then block out the ends of the bars we made.
+            surface.Canvas.DrawRect(0, 0, imageInfo.Width, imageYOffset - 1, paintBack);
 
-            DurationMs = (long)new TimeSpan(elapsedTicks).TotalMilliseconds;//.ToString("0.###");
-
-            if (_y > 0)
-            {
-                _surface.Canvas.DrawRect(0, 0, _imageInfo.Width, _y - 1, _paintBack);
-            }
-
-            return new BenchmarkResult(this);
-        }
-
-        public void ShowImage()
-        {
-            // Save the file
-            using (var image = _surface.Snapshot())
+            // Save the image file
+            string imageFileName = Path.Combine(imageFolder, $"{tag}.{name}.png");
+            using (var image = surface.Snapshot())
             using (var data = image.Encode(SKEncodedImageFormat.Png, 100))
-            using (var stream = File.OpenWrite($"{Allocator}.png"))
+            using (var stream = File.OpenWrite(imageFileName))
             {
                 data.SaveTo(stream);
             }
 
-            // Open the file
+            surface.Dispose();
+
+            return new Benchmark(imageFileName, valuesByName);
+        }
+
+        /// <summary>Opens the allocation pattern image file.</summary>
+        /// <returns></returns>
+        public void ShowPatternImage()
+        {
+            // Open the image file
             Process process = new Process();
             ProcessStartInfo startInfo = new ProcessStartInfo
             {
                 UseShellExecute = true,
                 WindowStyle = ProcessWindowStyle.Hidden,
-                FileName = $"{Allocator}.png",
+                FileName = _imageFileName,
             };
+
             process.StartInfo = startInfo;
             process.Start();
         }
 
-        public IEnumerable<string> GetColumnHeaders()
+        /// <summary>Returns the given stat value by name.</summary>
+        /// <param name="key"></param>
+        /// <returns></returns>
+        public string GetStat(string key)
         {
-            return GetType().GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance).Select(prop => prop.Name);
+            return _valuesByName[key];
         }
 
-        public IEnumerable<string> GetColumnValues()
+        /// <summary>Returns the given stat value by name.</summary>
+        /// <param name="key"></param>
+        /// <returns>True if found.</returns>
+        public bool TryGetStat(string key, out string? value)
         {
-            foreach (var prop in GetType().GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
+            return _valuesByName.TryGetValue(key, out value);
+        }
+
+        /// <summary>Gets each key/value pair.</summary>
+        /// <returns></returns>
+        public IEnumerable<(string Key, string Value)> GetStats()
+        {
+            return _valuesByName.Select(kvp => (kvp.Key, kvp.Value));
+        }
+
+        /// <summary>Gets the maximum length of each key/value pair.</summary>
+        /// <returns></returns>
+        public IEnumerable<(string Key, int Length)> GetColumnMetadata()
+        {
+            foreach (var kvp in _valuesByName)
             {
-                var value = prop.GetValue(this)?.ToString();
+                int len = Math.Max(kvp.Key.Length, kvp.Value.Length);
 
-                if (value != null)
-                    yield return value;
+                yield return (kvp.Key, len);
             }
-        }
-
-        public void Dispose()
-        {
-            _surface.Dispose();
         }
     }
 }

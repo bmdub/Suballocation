@@ -1,6 +1,6 @@
 ﻿using System.Buffers;
 
-namespace Suballocation;
+namespace Suballocation.Suballocators;
 
 /// <summary>
 /// A suballocator that returns the free segment at the top of the used stack of segments.

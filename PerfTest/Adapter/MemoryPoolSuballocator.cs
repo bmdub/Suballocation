@@ -1,16 +1,16 @@
-﻿using System;
-using System.Buffers;
-using System.Collections.Generic;
-using System.Linq;
+﻿using System.Buffers;
 using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
-using System.Text;
-using System.Threading.Tasks;
+using Suballocation.Suballocators;
 
 #pragma warning disable CS8602 // Dereference of a possibly null reference.
 
 namespace Suballocation
 {
+    /// <summary>
+    /// ISuballocator implementation backed by the shared MemoryPool.
+    /// Not meant to be used other than as a poor baseline for comparison.
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
     public unsafe sealed class MemoryPoolSuballocator<T> : ISuballocator<T>, IDisposable where T : unmanaged
     {
         private Dictionary<IntPtr, MemoryHandle>? _rentedArrays;

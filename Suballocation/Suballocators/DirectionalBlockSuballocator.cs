@@ -1,6 +1,6 @@
 ﻿using System.Buffers;
 
-namespace Suballocation;
+namespace Suballocation.Suballocators;
 
 /// <summary>
 /// A suballocator that uses a heuristic to converge on a nearby free segment in either direction when locating a segment to rent.

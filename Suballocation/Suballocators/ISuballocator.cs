@@ -1,5 +1,5 @@
 ﻿
-namespace Suballocation;
+namespace Suballocation.Suballocators;
 
 /// <summary>
 /// Provides a mechanism for retrieving information about a general suballocator.

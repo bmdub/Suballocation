@@ -1,8 +1,9 @@
-﻿using System.Collections;
+﻿using Suballocation.Suballocators;
+using System.Collections;
 
 namespace Suballocation;
 
-[DebuggerDisplay("[0x{(ulong)_ptr}] Length: {_length}, Size: {Size}, Value: {this[0]}")]
+[DebuggerDisplay("[0x{(ulong)_ptr}] Length: {_length}, Value: {this[0]}")]
 public unsafe readonly record struct NativeMemorySegmentResource<T> : ISegmentResource, ISegment<T> where T : unmanaged
 {
     private readonly ISuballocator<T> _suballocator;
@@ -39,7 +40,7 @@ public unsafe readonly record struct NativeMemorySegmentResource<T> : ISegmentRe
     }
 
     public override string ToString() =>
-        $"[0x{(ulong)_ptr}] Length: {_length:N0}, Size: {LengthBytes:N0}, Value: {this[0]}";
+        $"[0x{(ulong)_ptr}] Length: {_length:N0}, Value: {this[0]}";
 
     public IEnumerator<T> GetEnumerator()
     {
