@@ -17,6 +17,13 @@ namespace PerfTest;
 // Objects near edges may be re-traversed more quickly (and skipped over).
 
 //todo:
+// Try.. methods
+// Enumeration?
+// ToDisposable() seg
+// 
+//   Update window
+//   Compactability
+//   Seg to tag mapper. 
 // Sampling strategy. 
 // OptimizeHead()
 // Configurable head reset strategy
@@ -25,9 +32,12 @@ namespace PerfTest;
 // also option for full compaction?
 // consider segment updates, which will affect the update window. combine with compaction?
 // try not using reaodnly struct
+// record struct?
 // alternate heap traversals and modifications? batch puts? peek over dequeue.
 
-public partial class Program
+
+
+public partial class Program<T> where T : struct,ISegment
 {
     private const int _imageWidth = 1024;
     private const int _imageHeight = 1024;

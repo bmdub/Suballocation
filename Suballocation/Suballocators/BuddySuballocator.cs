@@ -153,23 +153,6 @@ public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T
         }
     }
 
-    public NativeMemorySegmentResource<T> RentResource(long length = 1)
-    {
-        if (_disposed) throw new ObjectDisposedException(nameof(BuddySuballocator<T>));
-        if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length), $"Segment length must be >= 1.");
-
-        var rawSegment = Alloc(length);
-
-        return new NativeMemorySegmentResource<T>(this, _pElems + rawSegment.Index, rawSegment.Length);
-    }
-
-    public void ReturnResource(NativeMemorySegmentResource<T> segment)
-    {
-        if (_disposed) throw new ObjectDisposedException(nameof(BuddySuballocator<T>));
-
-        Free(segment.PElems - _pElems, segment.Length);
-    }
-
     public NativeMemorySegment<T> Rent(long length = 1)
     {
         if (_disposed) throw new ObjectDisposedException(nameof(BuddySuballocator<T>));

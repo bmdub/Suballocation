@@ -46,23 +46,6 @@ namespace Suballocation
 
         public byte* PBytes => throw new NotImplementedException();
 
-        public NativeMemorySegmentResource<T> RentResource(long length = 1)
-        {
-            if (_disposed) throw new ObjectDisposedException(nameof(ArrayPoolSuballocator<T>));
-            if (length > int.MaxValue) throw new ArgumentOutOfRangeException(nameof(length), $"Segment length cannot be greater than Int32.MaxValue.");
-
-            var rawSegment = Alloc(length);
-
-            return new NativeMemorySegmentResource<T>(this, (T*)rawSegment.Index, rawSegment.Length);
-        }
-
-        public void ReturnResource(NativeMemorySegmentResource<T> segment)
-        {
-            if (_disposed) throw new ObjectDisposedException(nameof(ArrayPoolSuballocator<T>));
-
-            Free((long)segment.PElems, segment.Length);
-        }
-
         public NativeMemorySegment<T> Rent(long length = 1)
         {
             if (_disposed) throw new ObjectDisposedException(nameof(ArrayPoolSuballocator<T>));

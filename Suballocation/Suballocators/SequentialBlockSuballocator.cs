@@ -108,24 +108,6 @@ public unsafe sealed class SequentialBlockSuballocator<T> : ISuballocator<T>, ID
         }
     }
 
-    public NativeMemorySegmentResource<T> RentResource(long length = 1)
-    {
-        if (_disposed) throw new ObjectDisposedException(nameof(SequentialBlockSuballocator<T>));
-        if (length <= 0 || length > int.MaxValue * _blockLength)
-            throw new ArgumentOutOfRangeException(nameof(length), $"{nameof(length)} must be greater than 0 and less than Int32.Max times the block length.");
-
-        var rawSegment = Alloc(length);
-
-        return new NativeMemorySegmentResource<T>(this, _pElems + rawSegment.Offset, rawSegment.Length);
-    }
-
-    public void ReturnResource(NativeMemorySegmentResource<T> segment)
-    {
-        if (_disposed) throw new ObjectDisposedException(nameof(SequentialBlockSuballocator<T>));
-
-        Free(segment.PElems - _pElems, segment.Length);
-    }
-
     public NativeMemorySegment<T> Rent(long length = 1)
     {
         if (_disposed) throw new ObjectDisposedException(nameof(SequentialBlockSuballocator<T>));

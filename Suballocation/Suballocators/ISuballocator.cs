@@ -48,15 +48,6 @@ public unsafe interface ISuballocator<T> : ISuballocator where T : unmanaged
     /// <param name="segment">A previously rented segment of memory from this allocator.</param>
     public void Return(NativeMemorySegment<T> segment);
 
-    /// <summary>Returns a free segment of memory of the desired length, as an IDisposable resource.</summary>
-    /// <param name="length">The unit length of the segment requested.</param>
-    /// <returns>A rented segment that must be disposed in the future to free the memory for subsequent usage.</returns>
-    public NativeMemorySegmentResource<T> RentResource(long length = 1);
-
-    /// <summary>Disposes of the given rented memory segment resource. This is an optional alternative to calling Dispose() on the segment itself.</summary>
-    /// <param name="segment">A previously rented segment of memory from this allocator.</param>
-    public void ReturnResource(NativeMemorySegmentResource<T> segment);
-
     /// <summary>Clears all records of all outstanding rented segments, returning the allocator to an initial state. 
     /// NOTE: This assumes that prior rented segments are no longer in use, else behavior is undefined.</summary>
     public void Clear();

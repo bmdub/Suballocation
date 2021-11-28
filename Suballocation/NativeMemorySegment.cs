@@ -1,7 +1,11 @@
-﻿using System.Collections;
+﻿using Suballocation.Suballocators;
+using System.Collections;
 
 namespace Suballocation;
 
+/// <summary>
+/// Lightweight structure that represents a segment of unmanaged memory allocated from a suballocator.
+/// </summary>
 [DebuggerDisplay("[0x{(ulong)_ptr}] Length: {_length}, Value: {this[0]}")]
 public unsafe readonly record struct NativeMemorySegment<T> : ISegment<T> where T : unmanaged
 {

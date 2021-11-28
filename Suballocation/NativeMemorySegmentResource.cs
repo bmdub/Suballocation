@@ -3,58 +3,55 @@ using System.Collections;
 
 namespace Suballocation;
 
+/// <summary>
+/// Disposable structure that represents a segment of unmanaged memory allocated from a suballocator.
+/// </summary>
 [DebuggerDisplay("[0x{(ulong)_ptr}] Length: {_length}, Value: {this[0]}")]
 public unsafe readonly record struct NativeMemorySegmentResource<T> : ISegmentResource, ISegment<T> where T : unmanaged
 {
+    private readonly NativeMemorySegment<T> _segment;
     private readonly ISuballocator<T> _suballocator;
-    private readonly IntPtr _ptr;
-    private readonly long _length;
 
-    public unsafe NativeMemorySegmentResource(ISuballocator<T> memoryPool, T* ptr, long length)
+    public unsafe NativeMemorySegmentResource(in NativeMemorySegment<T> segment, ISuballocator<T> memoryPool)
     {
+        _segment = segment;
         _suballocator = memoryPool;
-        _ptr = (IntPtr)ptr;
-        _length = length;
     }
 
     public ISuballocator<T> Suballocator { get => _suballocator; init => _suballocator = value; }
     ISuballocator ISegmentResource.Suballocator { get => Suballocator; }
 
-    public unsafe void* PBytes { get => (void*)_ptr; init => _ptr = (IntPtr)value; }
+    public unsafe void* PBytes { get => _segment.PBytes; }
 
-    public long LengthBytes => _length * Unsafe.SizeOf<T>();
+    public long LengthBytes => _segment.LengthBytes;
 
-    public unsafe T* PElems { get => (T*)_ptr; init => _ptr = (IntPtr)value; }
+    public unsafe T* PElems { get => _segment.PElems; }
 
-    public long Length { get => _length; init => _length = value; }
+    public long Length { get => _segment.Length; }
 
-    public ref T Value => ref *(T*)_ptr;
+    public ref T Value => ref _segment.Value;
 
-    public ref T this[long index] => ref ((T*)_ptr)[index];
+    public ref T this[long index] => ref _segment[index];
 
-    public Span<T> AsSpan()
-    {
-        if (_length > int.MaxValue) throw new InvalidOperationException($"Unable to return a Span<T> for a range that is larger than int.Maxvalue.");
+    public Span<T> AsSpan() => _segment.AsSpan();
 
-        return new Span<T>((T*)_ptr, (int)_length);
-    }
+    public override string ToString() => _segment.ToString();
 
-    public override string ToString() =>
-        $"[0x{(ulong)_ptr}] Length: {_length:N0}, Value: {this[0]}";
+    public IEnumerator<T> GetEnumerator() => _segment.GetEnumerator();
 
-    public IEnumerator<T> GetEnumerator()
-    {
-        for (long i = 0; i < _length; i++)
-        {
-            yield return this[i];
-        }
-    }
-
-    IEnumerator IEnumerable.GetEnumerator() =>
-        GetEnumerator();
+    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
     public void Dispose()
     {
-        _suballocator.ReturnResource(this);
+        _suballocator.Return(_segment);
     }
+}
+
+public static class NativeMemorySegmentResource_SuballocatorExtensions
+{
+    /// <summary>Returns a free segment of memory of the desired length, as an IDisposable resource.</summary>
+    /// <param name="length">The unit length of the segment requested.</param>
+    /// <returns>A rented segment that must be disposed in the future to free the memory for subsequent usage.</returns>
+    public static NativeMemorySegmentResource<T> RentResource<T>(this ISuballocator<T> suballocator, long length = 1) where T : unmanaged =>
+        new NativeMemorySegmentResource<T>(suballocator.Rent(length), suballocator);
 }
