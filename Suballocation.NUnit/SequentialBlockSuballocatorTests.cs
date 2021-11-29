@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using Suballocation.Suballocators;
+using System.Linq;
 
 namespace Suballocation.NUnit
 {
@@ -207,6 +208,37 @@ namespace Suballocation.NUnit
             allocator.Clear();
 
             allocator.Rent(100);
+        }
+
+        [Test]
+        public void GetEnumeratorTest()
+        {
+            var allocator = new SequentialBlockSuballocator<int>(32640 * 2, 2);
+
+            HashSet<NativeMemorySegment<int>> segments = new();
+
+            for (int i = 1; i <= 255; i++)
+            {
+                var segment = allocator.Rent(i);
+                segments.Add(segment);
+            }
+
+            int returnCount = 0;
+            var setList = segments.ToList();
+            for (int i = 0; i < setList.Count; i += 3)
+            {
+                allocator.Return(setList[i]);
+                returnCount++;
+            }
+
+            var found = allocator.ToList();
+
+            Assert.AreEqual(segments.Count - returnCount, found.Count);
+
+            foreach (var segment in found)
+            {
+                Assert.IsTrue(segments.Contains(segment));
+            }
         }
     }
 }

@@ -1,4 +1,5 @@
 ﻿using System.Buffers;
+using System.Collections;
 using System.Numerics;
 
 namespace Suballocation.Suballocators;
@@ -345,6 +346,39 @@ public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T
         }
 
         InitIndexes();
+    }
+
+    public IEnumerator<NativeMemorySegment<T>> GetEnumerator() =>
+        GetOccupiedSegments().GetEnumerator();
+
+    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
+    private IEnumerable<NativeMemorySegment<T>> GetOccupiedSegments()
+    {
+        long index = 0;
+
+        while (index < _indexLength)
+        {
+            BlockHeader GetHeader() => _pIndex[index];
+
+            BlockHeader header = GetHeader();
+
+            if(header.Valid == false)
+            {
+                index++;
+                continue;
+            }
+
+            NativeMemorySegment<T> GenerateSegment() =>
+                new NativeMemorySegment<T>(_pElems + index * MinBlockLength, header.BlockCount * MinBlockLength);
+
+            if(header.Occupied == true)
+            {
+                yield return GenerateSegment();
+            }
+
+            index += header.BlockCount;
+        }
     }
 
     private void Dispose(bool disposing)

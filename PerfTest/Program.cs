@@ -17,7 +17,6 @@ namespace PerfTest;
 // Objects near edges may be re-traversed more quickly (and skipped over).
 
 //todo:
-// Enumeration?
 //   Update window
 //   Compactability
 //   Seg to tag mapper. 

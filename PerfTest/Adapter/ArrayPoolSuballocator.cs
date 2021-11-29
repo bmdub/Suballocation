@@ -3,6 +3,7 @@ using System.Buffers;
 using Suballocation.Suballocators;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Collections;
 
 #pragma warning disable CS8602 // Dereference of a possibly null reference.
 
@@ -113,6 +114,10 @@ namespace Suballocation
             }
             _rentedArrays.Clear();
         }
+
+        public IEnumerator<NativeMemorySegment<T>> GetEnumerator() => throw new NotImplementedException();
+
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
         public void Dispose()
         {

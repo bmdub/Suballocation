@@ -1,4 +1,5 @@
 ﻿using System.Buffers;
+using System.Collections;
 
 namespace Suballocation.Suballocators;
 
@@ -393,6 +394,53 @@ public unsafe sealed class DirectionalBlockSuballocator<T> : ISuballocator<T>, I
         _freeBlockBalance = 0;
 
         InitIndexes();
+    }
+
+    public IEnumerator<NativeMemorySegment<T>> GetEnumerator() =>
+        GetOccupiedSegments().GetEnumerator();
+
+    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
+    private IEnumerable<NativeMemorySegment<T>> GetOccupiedSegments()
+    {
+        long index = _currentIndex;
+
+        IndexEntry GetEntry() => _pIndex[index];
+
+        NativeMemorySegment<T> GenerateSegment(long blockCount) =>
+            new NativeMemorySegment<T>(_pElems + index * _blockLength, blockCount * _blockLength);
+
+        // Iterate backward from current head
+        var entry = GetEntry();
+
+        index -= entry.BlockCountPrev;
+
+        while (index > 0 && entry.BlockCountPrev != 0)
+        {
+            entry = GetEntry();
+
+            if (entry.Occupied == true)
+            {
+                yield return GenerateSegment(entry.BlockCount);
+            }
+
+            index -= entry.BlockCountPrev;
+        }
+
+        // Iterate forward
+        index = _currentIndex;
+
+        while (index < _blockCount)
+        {
+            entry = GetEntry();
+
+            if (entry.Occupied == true)
+            {
+                yield return GenerateSegment(entry.BlockCount);
+            }
+
+            index += entry.BlockCount;
+        }
     }
 
     private void Dispose(bool disposing)

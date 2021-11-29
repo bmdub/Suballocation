@@ -2,6 +2,7 @@
 using Suballocation.Suballocators;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.InteropServices;
 
 namespace Suballocation.NUnit
@@ -74,7 +75,7 @@ namespace Suballocation.NUnit
             {
                 var segment = segments[i];
 
-                for(int j=0; j<segment.Length; j++)
+                for (int j = 0; j < segment.Length; j++)
                 {
                     Assert.AreEqual(i, segment[j]);
                 }
@@ -226,6 +227,41 @@ namespace Suballocation.NUnit
             allocator.Clear();
 
             allocator.Rent(64);
+        }
+
+        [Test]
+        public void GetEnumeratorTest()
+        {
+            int power = 24;
+
+            long length = 1L << power;
+
+            var allocator = new BuddySuballocator<int>(length - 1, 1);
+
+            HashSet<NativeMemorySegment<int>> segments = new();
+
+            for (int i = 0; i < power; i++)
+            {
+                var segment = allocator.Rent(1L << i);
+                segments.Add(segment);
+            }
+
+            int returnCount = 0;
+            var setList = segments.ToList();
+            for (int i = 0; i < setList.Count; i += 3)
+            {
+                allocator.Return(setList[i]);
+                returnCount++;
+            }
+
+            var found = allocator.ToList();
+
+            Assert.AreEqual(segments.Count - returnCount, found.Count);
+
+            foreach(var segment in found)
+            {
+                Assert.IsTrue(segments.Contains(segment));
+            }
         }
 
         [Test]

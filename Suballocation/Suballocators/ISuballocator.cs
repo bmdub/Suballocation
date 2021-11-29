@@ -25,7 +25,7 @@ public unsafe interface ISuballocator : IDisposable
 /// <summary>
 /// Manages slices of memory segments from a fixed/large continguous memory buffer.
 /// </summary>
-public unsafe interface ISuballocator<T> : ISuballocator where T : unmanaged
+public unsafe interface ISuballocator<T> : ISuballocator, IEnumerable<NativeMemorySegment<T>> where T : unmanaged
 {
     /// <summary>The total unit count of the outstanding rented memory segments.</summary>
     public long UsedLength { get; }

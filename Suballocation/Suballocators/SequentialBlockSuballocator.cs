@@ -1,4 +1,5 @@
 ﻿using System.Buffers;
+using System.Collections;
 
 namespace Suballocation.Suballocators;
 
@@ -219,6 +220,33 @@ public unsafe sealed class SequentialBlockSuballocator<T> : ISuballocator<T>, ID
         _lastIndex = 0;
 
         InitIndexes();
+    }
+
+    public IEnumerator<NativeMemorySegment<T>> GetEnumerator() =>
+        GetOccupiedSegments().GetEnumerator();
+
+    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
+    private IEnumerable<NativeMemorySegment<T>> GetOccupiedSegments()
+    {
+        long index = 0;
+
+        IndexEntry GetEntry() => _pIndex[index];
+
+        NativeMemorySegment<T> GenerateSegment(long blockCount) =>
+            new NativeMemorySegment<T>(_pElems + index * _blockLength, blockCount * _blockLength);
+
+        while (index < _blockCount)
+        {
+            var entry = GetEntry();
+
+            if (entry.Occupied == true)
+            {
+                yield return GenerateSegment(entry.BlockCount);
+            }
+
+            index += entry.BlockCount;
+        }
     }
 
     private void Dispose(bool disposing)

@@ -1,4 +1,5 @@
 ﻿using System.Buffers;
+using System.Collections;
 using System.Runtime.CompilerServices;
 using Suballocation.Suballocators;
 
@@ -97,6 +98,9 @@ namespace Suballocation
             }
             _rentedArrays.Clear();
         }
+        public IEnumerator<NativeMemorySegment<T>> GetEnumerator() => throw new NotImplementedException();
+
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
         public void Dispose()
         {
