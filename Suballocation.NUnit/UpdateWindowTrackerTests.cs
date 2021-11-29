@@ -14,7 +14,7 @@ namespace Suballocation.NUnit
             for (int i = 1; i <= 255; i++)
             {
                 tracker.RegisterUpdate(new NativeMemorySegment<int>() { PElems = (int*)offset, Length = i });
-                offset += i * sizeof(int) * 2; // Add the same length as padding between this and the next update window.
+                offset += (long)(i * sizeof(int) * 1.5); // Add padding of half segment length.
             }
 
             var windows = tracker.BuildUpdateWindows();

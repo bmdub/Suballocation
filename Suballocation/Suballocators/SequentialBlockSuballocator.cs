@@ -108,26 +108,12 @@ public unsafe sealed class SequentialBlockSuballocator<T> : ISuballocator<T>, ID
         }
     }
 
-    public NativeMemorySegment<T> Rent(long length = 1)
+    public bool TryRent(long length, out NativeMemorySegment<T> segment)
     {
         if (_disposed) throw new ObjectDisposedException(nameof(SequentialBlockSuballocator<T>));
         if (length <= 0 || length > int.MaxValue * _blockLength)
             throw new ArgumentOutOfRangeException(nameof(length), $"{nameof(length)} must be greater than 0 and less than Int32.Max times the block length.");
 
-        var rawSegment = Alloc(length);
-
-        return new NativeMemorySegment<T>(_pElems + rawSegment.Offset, rawSegment.Length);
-    }
-
-    public void Return(NativeMemorySegment<T> segment)
-    {
-        if (_disposed) throw new ObjectDisposedException(nameof(SequentialBlockSuballocator<T>));
-
-        Free(segment.PElems - _pElems, segment.Length);
-    }
-
-    private unsafe (long Offset, long Length) Alloc(long length)
-    {
         // Convert to block space (divide length by block size).
         int blockCount = (int)(length / _blockLength);
         if (length * _blockLength != length)
@@ -181,7 +167,8 @@ public unsafe sealed class SequentialBlockSuballocator<T> : ISuballocator<T>, ID
 
                     _lastIndex = blockIndex;
 
-                    return new(blockIndex * _blockLength, length);
+                    segment = new NativeMemorySegment<T>(_pElems + blockIndex * _blockLength, length);
+                    return true;
                 }
             }
 
@@ -197,15 +184,20 @@ public unsafe sealed class SequentialBlockSuballocator<T> : ISuballocator<T>, ID
             }
         }
 
-        throw new OutOfMemoryException();
+        segment = default;
+        return false;
     }
 
-    private unsafe void Free(long index, long length)
+    public bool TryReturn(NativeMemorySegment<T> segment)
     {
+        if (_disposed) throw new ObjectDisposedException(nameof(SequentialBlockSuballocator<T>));
+
+        long index = segment.PElems - _pElems;
+
         // Convert to block space (divide length by block size).
         long blockIndex = index / _blockLength;
-        long blockCount = length / _blockLength;
-        if (length * _blockLength != length)
+        long blockCount = segment.Length / _blockLength;
+        if (blockCount * _blockLength != segment.Length)
         {
             blockCount++;
         }
@@ -214,13 +206,14 @@ public unsafe sealed class SequentialBlockSuballocator<T> : ISuballocator<T>, ID
 
         if (header.BlockCount != blockCount)
         {
-            throw new ArgumentException($"No rented segment found at index {index} with length {length}.");
+            return false;
         }
 
         header = header with { Occupied = false };
 
         Allocations--;
         UsedLength -= blockCount * _blockLength;
+        return true;
     }
 
     public void Clear()

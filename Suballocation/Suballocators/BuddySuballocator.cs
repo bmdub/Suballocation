@@ -153,28 +153,14 @@ public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T
         }
     }
 
-    public NativeMemorySegment<T> Rent(long length = 1)
+    public bool TryRent(long length, out NativeMemorySegment<T> segment)
     {
         if (_disposed) throw new ObjectDisposedException(nameof(BuddySuballocator<T>));
         if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length), $"Segment length must be >= 1.");
 
-        var rawSegment = Alloc(length);
-
-        return new NativeMemorySegment<T>(_pElems + rawSegment.Index, rawSegment.Length);
-    }
-
-    public void Return(NativeMemorySegment<T> segment)
-    {
-        if (_disposed) throw new ObjectDisposedException(nameof(BuddySuballocator<T>));
-
-        Free(segment.PElems - _pElems, segment.Length);
-    }
-
-    private unsafe (long Index, long Length) Alloc(long length)
-    {
         // Convert to block space (divide length by block size), then round up to a power of 2, since all allocations must be a power of 2.
         long blockCount = (long)BitOperations.RoundUpToPowerOf2((ulong)length) >> BitOperations.Log2((ulong)MinBlockLength);
-        if(blockCount == 0)
+        if (blockCount == 0)
         {
             blockCount = 1;
         }
@@ -191,7 +177,8 @@ public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T
         if (matchingBlockLengths == 0)
         {
             // No free blocks with a length large enough...
-            throw new OutOfMemoryException();
+            segment = default;
+            return false;
         }
 
         // We know there are free block(s) at a certain length. Grab the first one we find in the chain.
@@ -235,29 +222,34 @@ public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T
         Allocations++;
         BlocksUsed += header.BlockCount;
 
-        return (freeBlockIndexIndex * MinBlockLength, length);
+        segment = new NativeMemorySegment<T>(_pElems + freeBlockIndexIndex * MinBlockLength, length);
+        return true;
     }
 
-    private unsafe void Free(long offset, long length)
+    public bool TryReturn(NativeMemorySegment<T> segment)
     {
         if (_disposed) throw new ObjectDisposedException(nameof(BuddySuballocator<T>));
 
         // Convert to block space (divide length by block size), then round up to a power of 2, since all allocations must be a power of 2.
-        long blockCount = (long)BitOperations.RoundUpToPowerOf2((ulong)length) >> BitOperations.Log2((ulong)MinBlockLength);
+        long blockCount = (long)BitOperations.RoundUpToPowerOf2((ulong)segment.Length) >> BitOperations.Log2((ulong)MinBlockLength);
         if (blockCount == 0)
         {
             blockCount = 1;
         }
 
+        long offset = segment.PElems - _pElems;
+
         long freeBlockIndexIndex = offset / MinBlockLength;
 
         if (freeBlockIndexIndex < 0 || freeBlockIndexIndex >= _indexLength)
-            throw new ArgumentOutOfRangeException(nameof(offset));
+            throw new ArgumentOutOfRangeException(nameof(segment.PElems));
 
         ref BlockHeader header = ref _pIndex[freeBlockIndexIndex];
 
         if (header.Occupied == false)
-            throw new ArgumentException($"No rented segment at offset {freeBlockIndexIndex} found.");
+        {
+            return false;
+        }
 
         Allocations--;
         BlocksUsed -= blockCount;
@@ -301,6 +293,8 @@ public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T
 
             Combine(blockIndexIndex, lengthLog + 1);
         }
+
+        return true;
     }
 
     /// <summary>Free blocks are changed to each other, grouped by size. This removes a block from a chain and connects the chain.</summary>

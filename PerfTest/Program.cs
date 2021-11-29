@@ -17,10 +17,7 @@ namespace PerfTest;
 // Objects near edges may be re-traversed more quickly (and skipped over).
 
 //todo:
-// Try.. methods
 // Enumeration?
-// ToDisposable() seg
-// 
 //   Update window
 //   Compactability
 //   Seg to tag mapper. 
@@ -35,9 +32,7 @@ namespace PerfTest;
 // record struct?
 // alternate heap traversals and modifications? batch puts? peek over dequeue.
 
-
-
-public partial class Program<T> where T : struct,ISegment
+public partial class Program
 {
     private const int _imageWidth = 1024;
     private const int _imageHeight = 1024;

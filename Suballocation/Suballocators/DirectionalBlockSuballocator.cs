@@ -108,26 +108,12 @@ public unsafe sealed class DirectionalBlockSuballocator<T> : ISuballocator<T>, I
         }
     }
 
-    public NativeMemorySegment<T> Rent(long length = 1)
+    public bool TryRent(long length, out NativeMemorySegment<T> segment)
     {
         if (_disposed) throw new ObjectDisposedException(nameof(SequentialBlockSuballocator<T>));
         if (length <= 0 || length > int.MaxValue * _blockLength)
             throw new ArgumentOutOfRangeException(nameof(length), $"{nameof(length)} must be greater than 0 and less than Int32.Max times the block length.");
 
-        var rawSegment = Alloc(length);
-
-        return new NativeMemorySegment<T>(_pElems + rawSegment.Offset, rawSegment.Length);
-    }
-
-    public void Return(NativeMemorySegment<T> segment)
-    {
-        if (_disposed) throw new ObjectDisposedException(nameof(SequentialBlockSuballocator<T>));
-
-        Free(segment.PElems - _pElems, segment.Length);
-    }
-
-    private unsafe (long Offset, long Length) Alloc(long length)
-    {
         // Convert to block space (divide length by block size).
         int blockCount = (int)(length / _blockLength);
         if (length * _blockLength != length)
@@ -153,7 +139,7 @@ public unsafe sealed class DirectionalBlockSuballocator<T> : ISuballocator<T>, I
         int turnaroundCount = 0;
 
         // Use this method to move to the next segment in the current direction.
-        void AdvanceIndex()
+        bool AdvanceIndex()
         {
             ref IndexEntry fromHeader = ref _pIndex[_currentIndex];
 
@@ -175,7 +161,7 @@ public unsafe sealed class DirectionalBlockSuballocator<T> : ISuballocator<T>, I
 
                     if (++turnaroundCount == 2)
                     {
-                        throw new OutOfMemoryException();
+                        return false;
                     }
                 }
             }
@@ -192,7 +178,7 @@ public unsafe sealed class DirectionalBlockSuballocator<T> : ISuballocator<T>, I
 
                     if (++turnaroundCount == 2)
                     {
-                        throw new OutOfMemoryException();
+                        return false;
                     }
                 }
                 else if (_pIndex[_currentIndex].Occupied == false)
@@ -200,6 +186,8 @@ public unsafe sealed class DirectionalBlockSuballocator<T> : ISuballocator<T>, I
                     _freeBlockBalance += fromHeader.BlockCountPrev << 1;
                 }
             }
+
+            return true;
         }
 
         // Find a large-enough free segment to return.
@@ -209,13 +197,23 @@ public unsafe sealed class DirectionalBlockSuballocator<T> : ISuballocator<T>, I
 
             if (header.Occupied)
             {
-                AdvanceIndex();
+                if(AdvanceIndex() == false)
+                {
+                    segment = default;
+                    return false;
+                }
+
                 continue;
             }
 
             if (header.BlockCount < blockCount)
             {
-                AdvanceIndex();
+                if (AdvanceIndex() == false)
+                {
+                    segment = default;
+                    return false;
+                }
+
                 continue;
             }
 
@@ -242,7 +240,12 @@ public unsafe sealed class DirectionalBlockSuballocator<T> : ISuballocator<T>, I
                     header = header with { Occupied = true, BlockCount = blockCount };
 
                     _freeBlockBalance -= blockCount;
-                    AdvanceIndex();
+
+                    if (AdvanceIndex() == false)
+                    {
+                        segment = default;
+                        return false;
+                    }
                 }
                 else
                 {
@@ -264,22 +267,32 @@ public unsafe sealed class DirectionalBlockSuballocator<T> : ISuballocator<T>, I
             else
             {
                 header = header with { Occupied = true };
-                AdvanceIndex();
+
+                if (AdvanceIndex() == false)
+                {
+                    segment = default;
+                    return false;
+                }
             }
 
             Allocations++;
             UsedLength += blockCount * _blockLength;
 
-            return new(targetIndex * _blockLength, length);
+            segment = new NativeMemorySegment<T>(_pElems + targetIndex * _blockLength, length);
+            return true;
         }
     }
 
-    private unsafe void Free(long index, long length)
+    public bool TryReturn(NativeMemorySegment<T> segment)
     {
+        if (_disposed) throw new ObjectDisposedException(nameof(SequentialBlockSuballocator<T>));
+
+        long index = segment.PElems - _pElems;
+
         // Convert to block space (divide length by block size).
         long blockIndex = index / _blockLength;
-        int blockCount = (int)(length / _blockLength);
-        if (length * _blockLength != length)
+        int blockCount = (int)(segment.Length / _blockLength);
+        if (blockCount * _blockLength != segment.Length)
         {
             blockCount++;
         }
@@ -288,7 +301,7 @@ public unsafe sealed class DirectionalBlockSuballocator<T> : ISuballocator<T>, I
 
         if (header.BlockCount != blockCount)
         {
-            throw new ArgumentException($"No rented segment found at index {index} with length {length}.");
+            return false;
         }
 
         header = header with { Occupied = false };
@@ -372,6 +385,8 @@ public unsafe sealed class DirectionalBlockSuballocator<T> : ISuballocator<T>, I
 
         //Debug.Assert(rangeStart + rangeLength <= _blockCount || _pIndex[rangeStart].BlockCount > 0);
         //Debug.Assert(rangeStart + rangeLength >= _blockCount || _pIndex[rangeStart + rangeLength].BlockCount > 0);
+
+        return true;
     }
 
     public void Clear()

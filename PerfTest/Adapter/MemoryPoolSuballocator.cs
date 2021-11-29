@@ -44,28 +44,15 @@ namespace Suballocation
 
         public byte* PBytes => throw new NotImplementedException();
 
-        public NativeMemorySegment<T> Rent(long length = 1)
+        public bool TryRent(long length, out NativeMemorySegment<T> segment)
         {
             if (_disposed) throw new ObjectDisposedException(nameof(MemoryPoolSuballocator<T>));
             if (length > int.MaxValue) throw new ArgumentOutOfRangeException(nameof(length), $"Segment length cannot be greater than Int32.MaxValue.");
 
-            var rawSegment = Alloc(length);
-
-            return new NativeMemorySegment<T>((T*)rawSegment.Index, rawSegment.Length);
-        }
-
-        public void Return(NativeMemorySegment<T> segment)
-        {
-            if (_disposed) throw new ObjectDisposedException(nameof(MemoryPoolSuballocator<T>));
-
-            Free((long)segment.PElems, segment.Length);
-        }
-
-        private unsafe (long Index, long Length) Alloc(long length)
-        {
             if (UsedLength + length > CapacityLength || _rentedArrays.Count == int.MaxValue)
             {
-                throw new OutOfMemoryException();
+                segment = default;
+                return false;
             }
 
             var arr = MemoryPool<T>.Shared.Rent((int)length).Memory;
@@ -77,22 +64,26 @@ namespace Suballocation
             Allocations++;
             UsedLength += length;
 
-            return new((long)handle.Pointer, length);
+            segment = new NativeMemorySegment<T>((T*)handle.Pointer, length);
+            return true;
         }
 
-        private unsafe void Free(long index, long length)
+        public bool TryReturn(NativeMemorySegment<T> segment)
         {
-            var addr = (IntPtr)index;
+            if (_disposed) throw new ObjectDisposedException(nameof(MemoryPoolSuballocator<T>));
+
+            var addr = (IntPtr)segment.PElems;
 
             if (_rentedArrays.Remove(addr, out var handle) == false)
             {
-                throw new ArgumentException($"Rented segment not found.");
+                return false;
             }
 
             handle.Dispose();
 
             Allocations--;
-            UsedLength -= length;
+            UsedLength -= segment.Length;
+            return true;
         }
 
         public void Clear()
