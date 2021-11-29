@@ -65,7 +65,7 @@ namespace PerfTest
         {
             long lengthRentedCurrent = 0;
             long lengthRentedTotal = 0;
-            long lengthRentedWindow = 0;
+            long countRentedWindow = 0;
             long windowSetLengthTotal = 0;
             long windowSetSpreadMax = 0;
             long windowSetSpreadTotal = 0;
@@ -88,6 +88,8 @@ namespace PerfTest
             List<(bool Rental, NativeMemorySegment<T> Segment)> windowSegments = new(updatesPerWindow);
             var windowTracker = new UpdateWindowTracker<T>(updateWindowFillPercentage);
             var random = new Random(seed);
+
+            Console.WriteLine($"Running {name} ({tag})...");
 
             var stopwatch = new Stopwatch();
             stopwatch.Start();
@@ -127,17 +129,20 @@ namespace PerfTest
 
                     lengthRentedCurrent += segment.Length;
                     lengthRentedTotal += segment.Length;
-                    lengthRentedWindow += segment.Length;
+                    countRentedWindow++;
 
                     // After every N rentals, "apply" them; coalesce into update windows.
-                    if (lengthRentedWindow >= updatesPerWindow)
+                    if (countRentedWindow >= updatesPerWindow)
                     {
                         stopwatch.Stop();
                         elapsedTicks += stopwatch.ElapsedTicks;
 
                         for (int i = 0; i < windowSegments.Count; i++)
                         {
-                            windowTracker.RegisterUpdate(windowSegments[i].Segment);
+                            if (windowSegments[i].Rental)
+                            {
+                                windowTracker.RegisterUpdate(windowSegments[i].Segment);
+                            }
                         }
 
                         var updateWindows = windowTracker.BuildUpdateWindows();
@@ -153,19 +158,39 @@ namespace PerfTest
                         // If there's room left, display a visual line of the new alocations / returns.
                         if (imageYOffset >= 0)
                         {
+                            var pixels = new byte[imageWidth];
+
                             for (int i = 0; i < windowSegments.Count; i++)
                             {
                                 var offsetX = ((long)windowSegments[i].Segment.PElems - (long)suballocator.PElems) / Unsafe.SizeOf<T>() * imageScale;
-                                var width = Math.Max(1, windowSegments[i].Segment.Length * imageScale);
+                                var width = windowSegments[i].Segment.Length * imageScale;
 
-                                surface.Canvas.DrawRect((float)offsetX, 0, (float)width, imageYOffset, windowSegments[i].Rental ? paintFore : paintBack);
+                                // The value of the pixel is defined by the last window to overlap it.
+                                for (int j = (int)offsetX; j < offsetX + width; j++)
+                                {
+                                    //if(pixels[j] != true)
+                                    pixels[j] = windowSegments[i].Rental ? (byte)1 : (byte)2;
+                                }
+                            }
+
+                            for(int i=0; i<pixels.Length; i++)
+                            {
+                                if(pixels[i] == 0)
+                                {
+                                    continue;
+                                }
+
+                                surface.Canvas.DrawRect(i, 0, 1, imageYOffset, pixels[i] == 1 ? paintFore : paintBack);
                             }
 
                             imageYOffset--;
                         }
 
-                        lengthRentedWindow = 0;
+                        countRentedWindow = 0;
                         windowSegments.Clear();
+
+                        GC.Collect(3, GCCollectionMode.Forced, true);
+
                         stopwatch.Restart();
                     }
                 }
@@ -198,13 +223,16 @@ namespace PerfTest
 
             valuesByName["Name"] = name;
             valuesByName["Tag"] = tag;
+            valuesByName["OOM"] = "yes";
+            valuesByName["Duration (ms)"] = "0";
+            valuesByName["Window Set Length (avg)"] = "0";
+            valuesByName["Window Set Spread (avg)"] = "0";
+            valuesByName["Window Set Spread (max)"] = "0";
+            valuesByName["Window Count (avg)"] = "0";
 
-            if (outOfMemory)
+            if (outOfMemory == false)
             {
-                valuesByName["OOM"] = "yes";
-            }
-            else
-            {
+                valuesByName["OOM"] = "no";
                 valuesByName["Duration (ms)"] = new TimeSpan(elapsedTicks).TotalMilliseconds.ToString("0.###");
 
                 if (windowBuilds > 0)

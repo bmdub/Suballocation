@@ -167,7 +167,7 @@ public unsafe sealed class SequentialBlockSuballocator<T> : ISuballocator<T>, ID
 
                     _lastIndex = blockIndex;
 
-                    segment = new NativeMemorySegment<T>(_pElems + blockIndex * _blockLength, length);
+                    segment = new NativeMemorySegment<T>(_pElems + blockIndex * _blockLength, blockCount * _blockLength);
                     return true;
                 }
             }
@@ -197,10 +197,6 @@ public unsafe sealed class SequentialBlockSuballocator<T> : ISuballocator<T>, ID
         // Convert to block space (divide length by block size).
         long blockIndex = index / _blockLength;
         long blockCount = segment.Length / _blockLength;
-        if (blockCount * _blockLength != segment.Length)
-        {
-            blockCount++;
-        }
 
         ref IndexEntry header = ref _pIndex[blockIndex];
 

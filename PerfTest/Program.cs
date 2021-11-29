@@ -61,7 +61,7 @@ public partial class Program
         string tag = "Random";
 
         var results =
-            GetSuballocators<SomeStruct>(length: 1L << 25, blockLength: 32)
+            GetSuballocators<SomeStruct>(length: 1L << 25, blockLength: 1)
                 .Select(suballocator =>
                     Benchmark.Run(
                         imageFolder: _imageFolder,
@@ -70,13 +70,13 @@ public partial class Program
                         suballocator: suballocator,
                         seed: 0,
                         imageWidth: _imageWidth, imageHeight: _imageHeight,
-                        totalLengthToRent: 50_000_000_000,
-                        minSegmentLenInitial: 131072, minSegmentLenFinal: 32,
-                        maxSegmentLenInitial: 131072, maxSegmentLenFinal: 131072,
+                        totalLengthToRent: 120_000_000,
+                        minSegmentLenInitial: 1, minSegmentLenFinal: 1,
+                        maxSegmentLenInitial: 65536 / 4, maxSegmentLenFinal: 65536 / 4,
                         desiredFillPercentage: .55,
                         youthReturnFactor: .5,
-                        updateWindowFillPercentage: .31,
-                        updatesPerWindow: 100))
+                        updateWindowFillPercentage: .21,
+                        updatesPerWindow: 10))
                 .ToList();
         //.Run(.50f, minSegLen, maxSegLen, updateWindowTracker, 10000)
         //.Run(50_000_000_000, minSegLen, minSegLen, maxSegLen, maxSegLen, .55, .5, updateWindowTracker, 100)

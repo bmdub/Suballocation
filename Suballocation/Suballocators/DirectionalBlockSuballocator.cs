@@ -278,7 +278,7 @@ public unsafe sealed class DirectionalBlockSuballocator<T> : ISuballocator<T>, I
             Allocations++;
             UsedLength += blockCount * _blockLength;
 
-            segment = new NativeMemorySegment<T>(_pElems + targetIndex * _blockLength, length);
+            segment = new NativeMemorySegment<T>(_pElems + targetIndex * _blockLength, blockCount * _blockLength);
             return true;
         }
     }
@@ -292,10 +292,6 @@ public unsafe sealed class DirectionalBlockSuballocator<T> : ISuballocator<T>, I
         // Convert to block space (divide length by block size).
         long blockIndex = index / _blockLength;
         int blockCount = (int)(segment.Length / _blockLength);
-        if (blockCount * _blockLength != segment.Length)
-        {
-            blockCount++;
-        }
 
         ref IndexEntry header = ref _pIndex[blockIndex];
 
