@@ -144,7 +144,7 @@ public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T
 
             ref BlockHeader header = ref _pIndex[index];
 
-            header = header with { Valid = true, Occupied = false, BlockLengthLog = blockLengthLog, NextFree = long.MaxValue, PreviousFree = long.MaxValue };
+            header = header with { Valid = true, Occupied = false, BlockCountLog = blockLengthLog, NextFree = long.MaxValue, PreviousFree = long.MaxValue };
 
             _freeBlockIndexesStart[blockLengthLog] = index;
             _freeBlockIndexesFlags |= blockLength;
@@ -206,7 +206,7 @@ public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T
 
             header2 = header2 with { Valid = true, Occupied = false, BlockCount = splitLength, NextFree = _freeBlockIndexesStart[BitOperations.Log2((ulong)splitLength)], PreviousFree = long.MaxValue };
 
-            _freeBlockIndexesStart[header2.BlockLengthLog] = splitIndex;
+            _freeBlockIndexesStart[header2.BlockCountLog] = splitIndex;
             _freeBlockIndexesFlags |= header2.BlockCount;
 
             if (header2.NextFree != long.MaxValue)
@@ -217,12 +217,12 @@ public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T
         }
 
         // Occupy the final block segment.
-        header = header with { Occupied = true, BlockLengthLog = minFreeBlockIndex, NextFree = long.MaxValue, PreviousFree = long.MaxValue };
+        header = header with { Occupied = true, BlockCountLog = minFreeBlockIndex, NextFree = long.MaxValue, PreviousFree = long.MaxValue };
 
         Allocations++;
         BlocksUsed += header.BlockCount;
 
-        segment = new NativeMemorySegment<T>(_pElems + freeBlockIndexIndex * MinBlockLength, length);
+        segment = new NativeMemorySegment<T>(_pElems + freeBlockIndexIndex * MinBlockLength, header.BlockCount * MinBlockLength);
         return true;
     }
 
@@ -230,12 +230,8 @@ public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T
     {
         if (_disposed) throw new ObjectDisposedException(nameof(BuddySuballocator<T>));
 
-        // Convert to block space (divide length by block size), then round up to a power of 2, since all allocations must be a power of 2.
-        long blockCount = (long)BitOperations.RoundUpToPowerOf2((ulong)segment.Length) >> BitOperations.Log2((ulong)MinBlockLength);
-        if (blockCount == 0)
-        {
-            blockCount = 1;
-        }
+        // Convert to block space (divide length by block size).
+        long blockCount = segment.Length / MinBlockLength;
 
         long offset = segment.PElems - _pElems;
 
@@ -246,7 +242,7 @@ public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T
 
         ref BlockHeader header = ref _pIndex[freeBlockIndexIndex];
 
-        if (header.Occupied == false || header.Valid == false)
+        if (header.Occupied == false) // || header.Valid == false)
         {
             return false;
         }
@@ -257,7 +253,7 @@ public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T
         BlocksUsed -= blockCount;
 
         // If the returned block has a 'buddy' block next to it that is also free, then combine the two (recursively).
-        Combine(freeBlockIndexIndex, header.BlockLengthLog);
+        Combine(freeBlockIndexIndex, header.BlockCountLog);
 
         void Combine(long blockIndexIndex, int lengthLog)
         {
@@ -265,11 +261,11 @@ public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T
 
             var buddyBlockIndexIndex = blockIndexIndex ^ (1L << lengthLog);
 
-            if (buddyBlockIndexIndex >= _indexLength || _pIndex[buddyBlockIndexIndex].Occupied || _pIndex[buddyBlockIndexIndex].Valid == false || _pIndex[buddyBlockIndexIndex].BlockLengthLog != lengthLog)
+            if (buddyBlockIndexIndex >= _indexLength || _pIndex[buddyBlockIndexIndex].Occupied || /*_pIndex[buddyBlockIndexIndex].Valid == false ||*/ _pIndex[buddyBlockIndexIndex].BlockCountLog != lengthLog)
             {
                 // No buddy / the end of the buffer.
                 var nextFree = _freeBlockIndexesStart[lengthLog] == blockIndexIndex ? long.MaxValue : _freeBlockIndexesStart[lengthLog];
-                header = header with { Valid = true, Occupied = false, BlockLengthLog = lengthLog, NextFree = nextFree, PreviousFree = long.MaxValue };
+                header = header with { Valid = true, Occupied = false, BlockCountLog = lengthLog, NextFree = nextFree, PreviousFree = long.MaxValue };
                 _freeBlockIndexesStart[lengthLog] = blockIndexIndex;
                 _freeBlockIndexesFlags |= 1L << lengthLog;
 
@@ -284,7 +280,7 @@ public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T
 
             ref var buddyHeader = ref _pIndex[buddyBlockIndexIndex];
 
-            buddyHeader = buddyHeader with { Valid = false };
+            buddyHeader = buddyHeader with { Valid = false, Occupied = true };
 
             if (buddyBlockIndexIndex < blockIndexIndex)
             {
@@ -320,7 +316,7 @@ public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T
             {
                 nextHeader = nextHeader with { PreviousFree = long.MaxValue };
 
-                _freeBlockIndexesStart[header.BlockLengthLog] = header.NextFree;
+                _freeBlockIndexesStart[header.BlockCountLog] = header.NextFree;
             }
         }
         else if (header.PreviousFree != long.MaxValue)
@@ -331,7 +327,7 @@ public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T
         }
         else
         {
-            _freeBlockIndexesStart[header.BlockLengthLog] = long.MaxValue;
+            _freeBlockIndexesStart[header.BlockCountLog] = long.MaxValue;
             _freeBlockIndexesFlags &= ~header.BlockCount;
         }
     }
@@ -392,11 +388,12 @@ public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T
         private readonly long _nextFree;
 
         public bool Valid { get => (_infoByte & 0b1000_0000) != 0; init => _infoByte = value ? (byte)(_infoByte | 0b1000_0000) : (byte)(_infoByte & 0b0111_1111); }
-        public bool Occupied { get => (_infoByte & 0b0100_0000) != 0; init => _infoByte = value ? (byte)(_infoByte | 0b0100_0000) : (byte)(_infoByte & 0b1011_1111); }
-        public int BlockLengthLog { get => (_infoByte & 0b0011_1111); init => _infoByte = (byte)((_infoByte & 0b1100_0000) | (value & 0b0011_1111)); }
+        //public bool Occupied { get => (_infoByte & 0b0100_0000) != 0; init => _infoByte = value ? (byte)(_infoByte | 0b0100_0000) : (byte)(_infoByte & 0b1011_1111); }
+        public bool Occupied { get => (_infoByte & 0b1000_0000) == 0; init => _infoByte = value ? (byte)(_infoByte & 0b0111_1111) : (byte)(_infoByte | 0b1000_0000); }
+        public int BlockCountLog { get => (_infoByte & 0b0011_1111); init => _infoByte = (byte)((_infoByte & 0b1100_0000) | (value & 0b0011_1111)); }
         public long BlockCount
         {
-            get => (1L << BlockLengthLog);
+            get => (1L << BlockCountLog);
             init
             {
                 if (BitOperations.IsPow2(value) == false)
@@ -404,7 +401,7 @@ public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T
                     throw new ArgumentOutOfRangeException(nameof(BlockCount), "Must be a power of 2.");
                 }
 
-                BlockLengthLog = BitOperations.Log2((ulong)value);
+                BlockCountLog = BitOperations.Log2((ulong)value);
             }
         }
 
