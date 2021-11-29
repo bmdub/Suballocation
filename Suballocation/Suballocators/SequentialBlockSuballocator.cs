@@ -116,7 +116,7 @@ public unsafe sealed class SequentialBlockSuballocator<T> : ISuballocator<T>, ID
 
         // Convert to block space (divide length by block size).
         int blockCount = (int)(length / _blockLength);
-        if (length * _blockLength != length)
+        if (blockCount * _blockLength != length)
         {
             blockCount++;
         }
