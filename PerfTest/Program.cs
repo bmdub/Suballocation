@@ -18,7 +18,7 @@ namespace PerfTest;
 
 //todo:
 //   Update window
-//   Compactability
+//   Compactability. Use buckets. heap of buckets.
 //   Seg to tag mapper. 
 // Sampling strategy. 
 // OptimizeHead()
@@ -26,10 +26,7 @@ namespace PerfTest;
 // Configurable direction strategy with default.
 // compaction
 // also option for full compaction?
-// consider segment updates, which will affect the update window. combine with compaction?
-// try not using reaodnly struct
 // record struct?
-// alternate heap traversals and modifications? batch puts? peek over dequeue.
 
 public partial class Program
 {
@@ -60,7 +57,7 @@ public partial class Program
         string tag = "Random";
 
         var results =
-            GetSuballocators<SomeStruct>(length: 1L << 25, blockLength: 1)
+            GetSuballocators<SomeStruct>(length: 1L << 25, blockLength: 2)
                 .Select(suballocator =>
                     Benchmark.Run(
                         imageFolder: _imageFolder,
@@ -69,10 +66,10 @@ public partial class Program
                         suballocator: suballocator,
                         seed: 0,
                         imageWidth: _imageWidth, imageHeight: _imageHeight,
-                        totalLengthToRent: 120_000_000,
+                        totalLengthToRent: 320_000_000,
                         minSegmentLenInitial: 1, minSegmentLenFinal: 1,
-                        maxSegmentLenInitial: 65536 / 4, maxSegmentLenFinal: 65536 / 4,
-                        desiredFillPercentage: .55,
+                        maxSegmentLenInitial: 65536 * 1, maxSegmentLenFinal: 32,
+                        desiredFillPercentage: .95,
                         youthReturnFactor: .5,
                         updateWindowFillPercentage: .21,
                         updatesPerWindow: 10))
