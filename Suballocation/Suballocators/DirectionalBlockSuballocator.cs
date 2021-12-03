@@ -33,7 +33,7 @@ public unsafe sealed class DirectionalBlockSuballocator<T> : ISuballocator<T>, I
         _blockLength = blockLength;
         _blockCount = length / blockLength;
         if (length % blockLength > 0) _blockCount++;
-        _pIndex = (IndexEntry*)NativeMemory.Alloc((nuint)(_blockCount * sizeof(IndexEntry)));
+        _pIndex = (IndexEntry*)NativeMemory.Alloc((nuint)_blockCount, (nuint)sizeof(IndexEntry));
         _pElems = (T*)NativeMemory.Alloc((nuint)length, (nuint)Unsafe.SizeOf<T>());
         _privatelyOwned = true;
 
@@ -56,7 +56,7 @@ public unsafe sealed class DirectionalBlockSuballocator<T> : ISuballocator<T>, I
         _blockLength = blockLength;
         _blockCount = length / blockLength;
         if (length % blockLength > 0) _blockCount++;
-        _pIndex = (IndexEntry*)NativeMemory.Alloc((nuint)(_blockCount * sizeof(IndexEntry)));
+        _pIndex = (IndexEntry*)NativeMemory.Alloc((nuint)_blockCount, (nuint)sizeof(IndexEntry));
         _pElems = pElems;
 
         InitIndexes();
@@ -74,7 +74,7 @@ public unsafe sealed class DirectionalBlockSuballocator<T> : ISuballocator<T>, I
         _blockLength = blockLength;
         _blockCount = data.Length / blockLength;
         if (data.Length % blockLength > 0) _blockCount++;
-        _pIndex = (IndexEntry*)NativeMemory.Alloc((nuint)(_blockCount * sizeof(IndexEntry)));
+        _pIndex = (IndexEntry*)NativeMemory.Alloc((nuint)_blockCount, (nuint)sizeof(IndexEntry));
         _memoryHandle = data.Pin();
         _pElems = (T*)_memoryHandle.Pointer;
 
