@@ -1,12 +1,12 @@
 ﻿
-namespace Suballocation;
+namespace Suballocation.Trackers;
 
 /// <summary>
 /// Provides the ability to track rented memory segments from a suballocator. Specifically, the portions of the buffer that were allocated or updated.
 /// Also can combine update windows automatically based on a configurable distance threshold.
 /// </summary>
 /// <typeparam name="T">A blittable element type that defines the units allocated.</typeparam>
-public class UpdateWindowTracker<T> : IUpdateWindowTracker where T : unmanaged
+public class UpdateWindowTracker<T> where T : unmanaged
 {
     private static readonly Comparer<ISegment<T>> _segmentComparer;
     private readonly List<ISegment<T>> _segments = new();
@@ -76,8 +76,7 @@ public class UpdateWindowTracker<T> : IUpdateWindowTracker where T : unmanaged
         return new UpdateWindows<T>(finalWindows);
     }
 
-    IUpdateWindows IUpdateWindowTracker.BuildUpdateWindows() => BuildUpdateWindows();
-
+    /// <summary>Clears the tracker of all state, so it can be reused.</summary>
     public void Clear()
     {
         _segments.Clear();

@@ -1,6 +1,6 @@
 ﻿using Suballocation.Collections;
 
-namespace Suballocation;
+namespace Suballocation.Trackers;
 
 /// <summary>
 /// Provides the ability to approximately track fragmented segments in a buffer.
@@ -53,7 +53,7 @@ public class FragmentationTracker<T>
     /// <summary>Searches the collection for segments that are fragmented, and returns their tags, unordered.</summary>
     /// <param name="minimumFragmentationPct">The fragmentation threshold at which segments are deemed fragmented.</param>
     /// <returns>The tags associated with the segments that are found to be fragmented.</returns>
-    public IEnumerable<T> FindFragmentedSegments(double minimumFragmentationPct)
+    public IEnumerable<T> GetFragmentedSegments(double minimumFragmentationPct)
     {
         var enm = _dict.GetBuckets().GetEnumerator();
 
@@ -66,7 +66,7 @@ public class FragmentationTracker<T>
 
         while(enm.MoveNext())
         {
-            if(enm.Current.FillPct < minimumFragmentationPct && prevBucket.FillPct >= minimumFragmentationPct)
+            if(enm.Current.FillPct <= minimumFragmentationPct && prevBucket.FillPct <= minimumFragmentationPct)
             {
                 foreach (var entry in prevBucket)
                 {

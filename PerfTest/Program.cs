@@ -17,15 +17,10 @@ namespace PerfTest;
 // Objects near edges may be re-traversed more quickly (and skipped over).
 
 //todo:
-//   Update window
-//   Seg to tag mapper. 
 // Sampling strategy. 
 // OptimizeHead()
 // Configurable head reset strategy
 // Configurable direction strategy with default.
-// compaction
-// also option for full compaction?
-// record struct?
 
 public partial class Program
 {
