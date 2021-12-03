@@ -5,12 +5,12 @@ using System.Collections.Generic;
 
 namespace Suballocation.NUnit
 {
-    public class RangeDictionaryTests
+    public class OrderedBucketDictionaryTests
     {
         [Test]
         public void FillTest()
         {
-            var dict = new RangeDictionary<int>(1000, 10000);
+            var dict = new OrderedBucketDictionary<int>(1000, 10000, 16);
 
             for (int i = 1000; i < 10000; i++)
             {
@@ -25,7 +25,7 @@ namespace Suballocation.NUnit
         [Test]
         public void RemoveTest()
         {
-            var dict = new RangeDictionary<int>(1000, 10000);
+            var dict = new OrderedBucketDictionary<int>(1000, 10000, 32);
 
             for (int i = 1000; i < 10000; i++)
             {
@@ -46,7 +46,7 @@ namespace Suballocation.NUnit
         [Test]
         public void BoundaryTest()
         {
-            var dict = new RangeDictionary<int>(1000, 10000);
+            var dict = new OrderedBucketDictionary<int>(1000, 10000, 1);
 
             Assert.Throws<ArgumentOutOfRangeException>(() => dict.TryAdd(-1, 2000));
 
@@ -64,7 +64,7 @@ namespace Suballocation.NUnit
         [Test]
         public void DuplicateAddRemoveTest()
         {
-            var dict = new RangeDictionary<int>(1000, 10000);
+            var dict = new OrderedBucketDictionary<int>(1000, 10000, 32);
 
             var success = dict.TryAdd(3000, 2000);
             Assert.IsTrue(success);
@@ -82,7 +82,7 @@ namespace Suballocation.NUnit
         [Test]
         public void GetSetTest()
         {
-            var dict = new RangeDictionary<int>(1000, 10000);
+            var dict = new OrderedBucketDictionary<int>(1000, 10000, 32);
 
             for (int i = 1000; i < 10000; i++)
             {
@@ -110,7 +110,7 @@ namespace Suballocation.NUnit
         [Test]
         public void GetNearestTest()
         {
-            var dict = new RangeDictionary<int>(1000, 10000);
+            var dict = new OrderedBucketDictionary<int>(1000, 10000, 32);
 
             for (int i = 1000; i < 10000; i++)
             {
@@ -118,7 +118,7 @@ namespace Suballocation.NUnit
             }
 
             int count = 0;
-            long lastDistance = long.MaxValue;
+            long lastDistance = long.MinValue;
             foreach (var kvp in dict.GetNearest(5500))
             {
                 count++;
@@ -134,7 +134,7 @@ namespace Suballocation.NUnit
         [Test]
         public void GetRangeTest()
         {
-            var dict = new RangeDictionary<int>(1000, 10000);
+            var dict = new OrderedBucketDictionary<int>(1000, 10000, 1);
 
             for (int i = 1000; i < 10000; i++)
             {
@@ -142,7 +142,7 @@ namespace Suballocation.NUnit
             }
 
             int count = 0;
-            long lastKey = long.MaxValue;
+            long lastKey = 5499;
             foreach (var kvp in dict.GetRange(5500, 6500))
             {
                 count++;
@@ -157,7 +157,7 @@ namespace Suballocation.NUnit
         [Test]
         public void EnumerateTest()
         {
-            var dict = new RangeDictionary<int>(1000, 10000);
+            var dict = new OrderedBucketDictionary<int>(1000, 10000, 32);
 
             for (int i = 1000; i < 10000; i++)
             {
@@ -180,7 +180,7 @@ namespace Suballocation.NUnit
         [Test]
         public void ClearTest()
         {
-            var dict = new RangeDictionary<int>(1000, 10000);
+            var dict = new OrderedBucketDictionary<int>(1000, 10000, 32);
 
             for (int i = 1000; i < 10000; i++)
             {

@@ -18,7 +18,6 @@ namespace PerfTest;
 
 //todo:
 //   Update window
-//   Compactability. Use buckets. heap of buckets.
 //   Seg to tag mapper. 
 // Sampling strategy. 
 // OptimizeHead()
