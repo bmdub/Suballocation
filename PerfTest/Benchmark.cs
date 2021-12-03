@@ -3,6 +3,7 @@ using Suballocation;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using Suballocation.Suballocators;
+using Suballocation.Trackers;
 
 namespace PerfTest
 {
@@ -112,13 +113,7 @@ namespace PerfTest
 
                     var lengthToRent = random.Next(minSegmentLen, maxSegmentLen + 1);
 
-                    NativeMemorySegment<T> segment;
-
-                    try
-                    {
-                        segment = suballocator.Rent(lengthToRent);
-                    }
-                    catch (OutOfMemoryException)
+                    if (suballocator.TryRent(lengthToRent, out var segment) == false)
                     {
                         outOfMemory = true;
                         break;
@@ -173,9 +168,9 @@ namespace PerfTest
                                 }
                             }
 
-                            for(int i=0; i<pixels.Length; i++)
+                            for (int i = 0; i < pixels.Length; i++)
                             {
-                                if(pixels[i] == 0)
+                                if (pixels[i] == 0)
                                 {
                                     continue;
                                 }
