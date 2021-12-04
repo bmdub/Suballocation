@@ -63,7 +63,7 @@ public partial class Program
                         totalLengthToRent: 320_000_000,
                         minSegmentLenInitial: 1, minSegmentLenFinal: 1,
                         maxSegmentLenInitial: 65536 * 1, maxSegmentLenFinal: 32,
-                        desiredFillPercentage: .95,
+                        desiredFillPercentage: .8,
                         youthReturnFactor: .5,
                         updateWindowFillPercentage: .21,
                         updatesPerWindow: 10))

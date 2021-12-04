@@ -138,6 +138,16 @@ public partial class OrderedRangeBucketDictionary<T>
 
         IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
+        /// <summary>Returns all of the elements whose key belongs in this bucket range.</summary>
+        public IEnumerable<RangeEntry> GetOriginatingRanges()
+        {
+            var minKey = _minKey;
+
+            return _dict
+                    .Where(kvp => kvp.Key >= minKey)
+                    .Select(kvp => new RangeEntry() { Key = kvp.Key, Length = kvp.Value.Length, Value = kvp.Value.Value });
+        }
+
         private readonly record struct BucketEntry
         {
             private readonly long _length;

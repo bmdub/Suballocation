@@ -13,16 +13,21 @@ public class TaggingTracker<T>
     /// <summary>Tells the tracker to note this newly-rented or updated segment.</summary>
     /// <param name="segment">The added or updated memory segment.</param>
     /// <param name="tag">An item to associate with this segment, for later retrieval.</param>
-    public unsafe void RegisterUpdate(ISegment segment, T tag)
+    public unsafe void TrackAddOrUpdate(ISegment segment, T tag)
     {
-        _dict.Add((long)segment.PBytes, tag);
+        _dict[(long)segment.PBytes] = tag;
     }
 
     /// <summary>Tells the tracker to note this newly-removed segment.</summary>
     /// <param name="segment">The memory segment that was removed from its buffer.</param>
-    public unsafe void RegisterRemoval(ISegment segment)
+    public unsafe T RegisterRemoval(ISegment segment)
     {
-        _dict.Remove((long)segment.PBytes, out _);
+        if (_dict.Remove((long)segment.PBytes, out var value) == false)
+        {
+            throw new KeyNotFoundException();
+        }
+
+        return value;
     }
 
     /// <summary>Gets the tag associated with the given segment</summary>

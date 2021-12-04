@@ -5,42 +5,59 @@ namespace Suballocation.Trackers;
 /// <summary>
 /// Provides the ability to approximately track fragmented segments in a buffer.
 /// </summary>
-/// <typeparam name="T">An item type to map to each segment, for later retrieval.</typeparam>
-public class FragmentationTracker<T>
+/// <typeparam name="TTag">An item type to map to each segment, for later retrieval.</typeparam>
+public unsafe class FragmentationTracker<TBuffer, TTag> where TBuffer : unmanaged
 {
-    private readonly OrderedRangeBucketDictionary<T> _dict;
+    private readonly TBuffer* _pBuffer;
+    private readonly OrderedRangeBucketDictionary<TTag> _dict;
 
     /// <summary></summary>
-    /// <param name="keyMin">The minimum key value to allow in the collection. The key range dictates the size of a backing array; thus a smaller range is better.</param>
-    /// <param name="keyMax">The maximum key value to allow in the collection, inclusive. The key range dictates the size of a backing array; thus a smaller range is better.</param>
-    /// <param name="bucketLength">The key-range length that each backing bucket is intended to manage. Smaller buckets may improve ordered-lookup performance for non-sparse elements at the cost of GC overhead and memory.</param>
-    public FragmentationTracker(long keyMin, long keyMax, long bucketLength)
+    /// <param name="pBuffer">The address of the unmanaged buffer that you are tracking segments for.</param>
+    /// <param name="length">The unit length of the unmanaged buffer that you are tracking segments for.</param>
+    /// <param name="bucketLength">The unit length that each backing bucket is intended to manage. Smaller buckets may improve ordered-lookup performance for non-sparse elements at the cost of GC overhead and memory.</param>
+    public unsafe FragmentationTracker(TBuffer* pBuffer, long length, long bucketLength)
     {
-        _dict = new OrderedRangeBucketDictionary<T>(keyMin, keyMax, bucketLength);
+        _pBuffer = pBuffer;
+        _dict = new OrderedRangeBucketDictionary<TTag>(0, length - 1, bucketLength);
     }
 
-    /// <summary>Tells the tracker to note this newly-rented or updated segment.</summary>
-    /// <param name="segment">The added or updated memory segment.</param>
+    /// <summary>Tells the tracker to note this newly-rented segment.</summary>
+    /// <param name="segment">The added memory segment.</param>
     /// <param name="tag">An item to associate with this segment, for later retrieval.</param>
-    public unsafe void RegisterUpdate<TSegment>(ISegment<TSegment> segment, T tag) where TSegment : unmanaged
+    public unsafe void TrackAdd(ISegment<TBuffer> segment, TTag tag)
     {
-        _dict.Add((long)segment.PElems, segment.Length, tag);
+        _dict.Add(segment.PElems - _pBuffer, segment.Length, tag);
+    }
+
+    /// <summary>Tells the tracker to note this added/updated segment.</summary>
+    /// <param name="segment">The new/updated memory segment.</param>
+    /// <param name="tag">An item to associate with this segment, for later retrieval.</param>
+    public unsafe void TrackAddOrUpdate(ISegment<TBuffer> segment, TTag tag)
+    {
+        long index = segment.PElems - _pBuffer;
+
+        _dict[index] = new OrderedRangeBucketDictionary<TTag>.RangeEntry(index, segment.Length, tag);
     }
 
     /// <summary>Tells the tracker to note this newly-removed segment.</summary>
     /// <param name="segment">The memory segment that was removed from its buffer.</param>
-    public unsafe void RegisterRemoval<TSegment>(ISegment<TSegment> segment) where TSegment : unmanaged
+    public unsafe TTag TrackRemoval(ISegment<TBuffer> segment)
     {
-        _dict.Remove((long)segment.PElems, out _);
+        if(_dict.Remove(segment.PElems - _pBuffer, out var tag) == false)
+        {
+            throw new KeyNotFoundException();
+        }
+
+        return tag.Value;
     }
 
     /// <summary>Gets the tag associated with the given segment</summary>
     /// <param name="segment">The memory segment that was removed from its buffer.</param>
     /// <param name="value">The tag given to the segment, if found.</param>
     /// <returns>True if found.</returns>
-    public unsafe bool TryGetTag<TSegment>(ISegment<TSegment> segment, out T value) where TSegment : unmanaged
+    public unsafe bool TryGetTag(ISegment<TBuffer> segment, out TTag value)
     {
-        if(_dict.TryGetValue((long)segment.PBytes, out var entry) == false)
+        if(_dict.TryGetValue(segment.PElems - _pBuffer, out var entry) == false)
         {
             value = default!;
             return false;
@@ -53,7 +70,7 @@ public class FragmentationTracker<T>
     /// <summary>Searches the collection for segments that are fragmented, and returns their tags, unordered.</summary>
     /// <param name="minimumFragmentationPct">The fragmentation threshold at which segments are deemed fragmented.</param>
     /// <returns>The tags associated with the segments that are found to be fragmented.</returns>
-    public IEnumerable<T> GetFragmentedSegments(double minimumFragmentationPct)
+    public IEnumerable<TTag> GetFragmentedSegments(double minimumFragmentationPct)
     {
         var enm = _dict.GetBuckets().GetEnumerator();
 
@@ -66,14 +83,17 @@ public class FragmentationTracker<T>
 
         while(enm.MoveNext())
         {
-            if(enm.Current.FillPct <= minimumFragmentationPct && prevBucket.FillPct <= minimumFragmentationPct)
+            if(enm.Current.FillPct > 0 &&
+                prevBucket.FillPct > 0 &&
+                1.0 - enm.Current.FillPct >= minimumFragmentationPct && 
+                1.0 - prevBucket.FillPct >= minimumFragmentationPct)
             {
-                foreach (var entry in prevBucket)
+                foreach (var entry in prevBucket.GetOriginatingRanges())
                 {
                     yield return entry.Value;
                 }
 
-                foreach (var entry in enm.Current)
+                foreach (var entry in enm.Current.GetOriginatingRanges())
                 {
                     yield return entry.Value;
                 }

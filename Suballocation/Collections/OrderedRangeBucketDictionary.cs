@@ -61,13 +61,9 @@ public partial class OrderedRangeBucketDictionary<T> : IEnumerable<OrderedRangeB
         }
         set
         {
-            if (key < _keyMin || key > _keyMax) throw new ArgumentOutOfRangeException(nameof(key));
+            Remove(key, out _);
 
-            int bucketIndex = (int)((key - _keyMin) * _buckets.Length / _keyRange);
-
-            ref Bucket bucket = ref _buckets[bucketIndex];
-
-            bucket[key] = value;
+            Add(value);
         }
     }
 

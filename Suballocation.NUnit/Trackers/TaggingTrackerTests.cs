@@ -13,7 +13,7 @@ namespace Suballocation.NUnit
 
             for (int i = 1; i <= 1000; i++)
             {
-                tracker.RegisterUpdate(new NativeMemorySegment<int>() { PElems = (int*)i, Length = 1 }, i * -1);
+                tracker.TrackAddOrUpdate(new NativeMemorySegment<int>() { PElems = (int*)i, Length = 1 }, i * -1);
             }
 
             for (int i = 1; i <= 1000; i++)
@@ -35,7 +35,7 @@ namespace Suballocation.NUnit
 
             for (int i = 0; i <= 1000; i++)
             {
-                tracker.RegisterUpdate(new NativeMemorySegment<int>() { PElems = (int*)i, Length = 1 }, i * -1);
+                tracker.TrackAddOrUpdate(new NativeMemorySegment<int>() { PElems = (int*)i, Length = 1 }, i * -1);
             }
 
             for (int i = 0; i <= 1000; i+=3)
@@ -69,7 +69,7 @@ namespace Suballocation.NUnit
 
             for (int i = 1; i <= 1000; i++)
             {
-                tracker.RegisterUpdate(new NativeMemorySegment<int>() { PElems = (int*)i, Length = 1 }, i * -1);
+                tracker.TrackAddOrUpdate(new NativeMemorySegment<int>() { PElems = (int*)i, Length = 1 }, i * -1);
             }
 
             tracker.Clear();

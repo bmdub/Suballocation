@@ -86,9 +86,11 @@ namespace PerfTest
             surface.Canvas.Clear(SKColors.Black);
 
             List<NativeMemorySegment<T>> segments = new();
-            List<(bool Rental, NativeMemorySegment<T> Segment)> windowSegments = new(updatesPerWindow);
+            List<(bool Rental, NativeMemorySegment<T> Segment, int SegmentIndex)> windowSegments = new(updatesPerWindow);
             var windowTracker = new UpdateWindowTracker<T>(updateWindowFillPercentage);
             var random = new Random(seed);
+
+            var fragTracker = new FragmentationTracker<T, int>(suballocator.PElems, suballocator.CapacityLength, 1024);
 
             Console.WriteLine($"Running {name} ({tag})...");
 
@@ -120,11 +122,14 @@ namespace PerfTest
                     }
 
                     segments.Add(segment);
-                    windowSegments.Add((true, segment));
+                    windowSegments.Add((true, segment, segments.Count - 1));
 
                     lengthRentedCurrent += segment.Length;
                     lengthRentedTotal += segment.Length;
                     countRentedWindow++;
+
+                    windowTracker.TrackAdditionOrUpdate(segment);
+                    fragTracker.TrackAddOrUpdate(segment, segments.Count - 1);
 
                     // After every N rentals, "apply" them; coalesce into update windows.
                     if (countRentedWindow >= updatesPerWindow)
@@ -132,12 +137,27 @@ namespace PerfTest
                         stopwatch.Stop();
                         elapsedTicks += stopwatch.ElapsedTicks;
 
-                        for (int i = 0; i < windowSegments.Count; i++)
+                        // Do some defragging
+                        var fragmented = fragTracker.GetFragmentedSegments(.001).ToList();
+                        foreach (var i in fragmented)
                         {
-                            if (windowSegments[i].Rental)
+                            var index = fragTracker.TrackRemoval(segments[i]);
+
+                            suballocator.Return(segments[i]);
+                        }
+
+                        foreach (var i in fragmented)
+                        {
+                            if (suballocator.TryRent(segments[i].Length, out var movedSegment) == false)
                             {
-                                windowTracker.RegisterUpdate(windowSegments[i].Segment);
+                                outOfMemory = true;
+                                break;
                             }
+
+                            segments[i] = movedSegment;
+                            windowTracker.TrackAdditionOrUpdate(movedSegment);
+                            fragTracker.TrackAddOrUpdate(movedSegment, i);
+                            //Console.WriteLine("defrag");
                         }
 
                         var updateWindows = windowTracker.BuildUpdateWindows();
@@ -203,7 +223,14 @@ namespace PerfTest
                     segments[swapIndex] = segments[^1];
                     segments.RemoveAt(segments.Count - 1);
 
-                    windowSegments.Add((false, segment));
+                    windowSegments.Add((false, segment, segments.Count - 1));
+
+                    fragTracker.TrackRemoval(segment);
+
+                    if (swapIndex < segments.Count)
+                    {
+                        fragTracker.TrackAddOrUpdate(segments[swapIndex], swapIndex);
+                    }
 
                     suballocator.Return(segment);
 

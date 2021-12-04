@@ -29,9 +29,16 @@ public class UpdateWindowTracker<T> where T : unmanaged
 
     /// <summary>Tells the tracker to note this newly-rented or updated segment.</summary>
     /// <param name="segment"></param>
-    public unsafe void RegisterUpdate(ISegment<T> segment)
+    public void TrackAdditionOrUpdate(ISegment<T> segment)
     {
         _segments.Add(segment);
+    }
+
+    /// <summary>Tells the tracker to note this removed segment.</summary>
+    /// <param name="segment"></param>
+    public void TrackRemoval(ISegment<T> segment)
+    {
+        _segments.Add();
     }
 
     /// <summary>Used to determine if we can combine two update windows.</summary>
@@ -52,6 +59,18 @@ public class UpdateWindowTracker<T> where T : unmanaged
         long bytesFilled = 0;
         foreach (var window in _segments)
         {
+            if (window.  finalWindows.Count > 0 && finalWindows[^1].PElems == window.PElems && finalWindows[^1].LengthBytes == window.LengthBytes)
+            {
+                // Combine the segment with the current update window.
+                finalWindows[^1] = new NativeMemorySegment<T>()
+                {
+                    PElems = finalWindows[^1].PElems,
+                    Length = ((long)window.PElems + window.LengthBytes - (long)finalWindows[^1].PElems) / Unsafe.SizeOf<T>()
+                };
+
+                // Make sure to account for the case of overlap.
+                bytesFilled = Math.Min(bytesFilled + window.LengthBytes, finalWindows[^1].LengthBytes);
+            }
             if (finalWindows.Count > 0 && CanCombine(finalWindows[^1].PElems, bytesFilled, window.PElems, window.LengthBytes))
             {
                 // Combine the segment with the current update window.
