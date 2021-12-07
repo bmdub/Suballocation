@@ -13,7 +13,7 @@ public class TaggingTracker<T>
     /// <summary>Tells the tracker to note this newly-rented or updated segment.</summary>
     /// <param name="segment">The added or updated memory segment.</param>
     /// <param name="tag">An item to associate with this segment, for later retrieval.</param>
-    public unsafe void TrackAddOrUpdate(ISegment segment, T tag)
+    public unsafe void TrackAdditionOrUpdate(ISegment segment, T tag)
     {
         _dict[(long)segment.PBytes] = tag;
     }

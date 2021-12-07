@@ -17,7 +17,7 @@ namespace Suballocation.NUnit
 
             for (int i = 100; i < 1000; i++)
             {
-                tracker.TrackAdd(new NativeMemorySegment<int>() { PElems = (int*)i, Length = 1 }, i * -1);
+                tracker.TrackAddition(new NativeMemorySegment<int>() { PElems = (int*)i, Length = 1 }, i * -1);
             }
 
             Assert.IsEmpty(tracker.GetFragmentedSegments(.99));
@@ -45,7 +45,7 @@ namespace Suballocation.NUnit
 
             for (int i = 100; i < 1000; i+=5)
             {
-                tracker.TrackAdd(new NativeMemorySegment<int>() { PElems = (int*)i, Length = 5 }, i * -1);
+                tracker.TrackAddition(new NativeMemorySegment<int>() { PElems = (int*)i, Length = 5 }, i * -1);
             }
 
             Assert.IsEmpty(tracker.GetFragmentedSegments(.99));
@@ -75,7 +75,7 @@ namespace Suballocation.NUnit
 
             for (int i = 100; i < 1000; i++)
             {
-                tracker.TrackAdd(new NativeMemorySegment<int>() { PElems = (int*)i, Length = 1 }, i * -1);
+                tracker.TrackAddition(new NativeMemorySegment<int>() { PElems = (int*)i, Length = 1 }, i * -1);
             }
 
             for (int i = 100; i < 1000; i++)
@@ -97,7 +97,7 @@ namespace Suballocation.NUnit
 
             for (int i = 100; i < 1000; i++)
             {
-                tracker.TrackAdd(new NativeMemorySegment<int>() { PElems = (int*)i, Length = 1 }, i * -1);
+                tracker.TrackAddition(new NativeMemorySegment<int>() { PElems = (int*)i, Length = 1 }, i * -1);
             }
 
             for (int i = 100; i < 1000; i += 3)
@@ -131,7 +131,7 @@ namespace Suballocation.NUnit
 
             for (int i = 100; i < 1000; i++)
             {
-                tracker.TrackAdd(new NativeMemorySegment<int>() { PElems = (int*)i, Length = 1 }, i * -1);
+                tracker.TrackAddition(new NativeMemorySegment<int>() { PElems = (int*)i, Length = 1 }, i * -1);
             }
 
             tracker.Clear();

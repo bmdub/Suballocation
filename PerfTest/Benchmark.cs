@@ -131,7 +131,7 @@ namespace PerfTest
                     countRentedWindow++;
 
                     windowTracker.TrackAdditionOrUpdate(segment);
-                    fragTracker.TrackAddOrUpdate(segment, segments.Count - 1);
+                    fragTracker.TrackAdditionOrUpdate(segment, segments.Count - 1);
 
                     // After every N rentals, "apply" them; coalesce into update windows.
                     if (countRentedWindow >= updatesPerWindow)
@@ -160,7 +160,7 @@ namespace PerfTest
 
                             segments[i] = movedSegment;
                             windowTracker.TrackAdditionOrUpdate(movedSegment);
-                            fragTracker.TrackAddOrUpdate(movedSegment, i);
+                            fragTracker.TrackAdditionOrUpdate(movedSegment, i);
                         }
 
                         if(outOfMemory)
@@ -245,7 +245,7 @@ namespace PerfTest
 
                     if (swapIndex < segments.Count)
                     {
-                        fragTracker.TrackAddOrUpdate(segments[swapIndex], swapIndex);
+                        fragTracker.TrackAdditionOrUpdate(segments[swapIndex], swapIndex);
                     }
 
                     suballocator.Return(segment);

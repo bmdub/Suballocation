@@ -24,7 +24,7 @@ public unsafe class FragmentationTracker<TBuffer, TTag> where TBuffer : unmanage
     /// <summary>Tells the tracker to note this newly-rented segment.</summary>
     /// <param name="segment">The added memory segment.</param>
     /// <param name="tag">An item to associate with this segment, for later retrieval.</param>
-    public unsafe void TrackAdd(NativeMemorySegment<TBuffer> segment, TTag tag)
+    public unsafe void TrackAddition(NativeMemorySegment<TBuffer> segment, TTag tag)
     {
         _dict.Add(segment.PElems - _pBuffer, segment.Length, tag);
     }
@@ -32,7 +32,7 @@ public unsafe class FragmentationTracker<TBuffer, TTag> where TBuffer : unmanage
     /// <summary>Tells the tracker to note this added/updated segment.</summary>
     /// <param name="segment">The new/updated memory segment.</param>
     /// <param name="tag">An item to associate with this segment, for later retrieval.</param>
-    public unsafe void TrackAddOrUpdate(NativeMemorySegment<TBuffer> segment, TTag tag)
+    public unsafe void TrackAdditionOrUpdate(NativeMemorySegment<TBuffer> segment, TTag tag)
     {
         long index = segment.PElems - _pBuffer;
 
