@@ -8,13 +8,13 @@ namespace Suballocation.Trackers;
 /// <typeparam name="T">A blittable element type that defines the units allocated.</typeparam>
 public class UpdateWindowTracker<T> where T : unmanaged
 {
-    private static readonly Comparer<ISegment<T>> _segmentComparer;
-    private readonly List<ISegment<T>> _segments = new();
+    private static readonly Comparer<NativeMemorySegment<T>> _segmentComparer;
+    private readonly List<NativeMemorySegment<T>> _segments = new();
     private readonly double _minimumFillPercentage;
 
     static unsafe UpdateWindowTracker()
     {
-        _segmentComparer = Comparer<ISegment<T>>.Create((a, b) => ((IntPtr)a.PElems).CompareTo((IntPtr)b.PElems));
+        _segmentComparer = Comparer<NativeMemorySegment<T>>.Create((a, b) => ((IntPtr)a.PElems).CompareTo((IntPtr)b.PElems));
     }
 
     /// <summary></summary>
@@ -29,16 +29,16 @@ public class UpdateWindowTracker<T> where T : unmanaged
 
     /// <summary>Tells the tracker to note this newly-rented or updated segment.</summary>
     /// <param name="segment"></param>
-    public void TrackAdditionOrUpdate(ISegment<T> segment)
+    public void TrackAdditionOrUpdate(NativeMemorySegment<T> segment)
     {
         _segments.Add(segment);
     }
 
     /// <summary>Tells the tracker to note this removed segment.</summary>
     /// <param name="segment"></param>
-    public void TrackRemoval(ISegment<T> segment)
+    public unsafe void TrackRemoval(NativeMemorySegment<T> segment)
     {
-        _segments.Add();
+        _segments.Add(new NativeMemorySegment<T>(0, segment.PElems, -1));
     }
 
     /// <summary>Used to determine if we can combine two update windows.</summary>
@@ -59,19 +59,17 @@ public class UpdateWindowTracker<T> where T : unmanaged
         long bytesFilled = 0;
         foreach (var window in _segments)
         {
-            if (window.  finalWindows.Count > 0 && finalWindows[^1].PElems == window.PElems && finalWindows[^1].LengthBytes == window.LengthBytes)
+            if (window.Length == -1)
             {
-                // Combine the segment with the current update window.
-                finalWindows[^1] = new NativeMemorySegment<T>()
+                if (finalWindows.Count > 0 && finalWindows[^1].PElems == window.PElems)
                 {
-                    PElems = finalWindows[^1].PElems,
-                    Length = ((long)window.PElems + window.LengthBytes - (long)finalWindows[^1].PElems) / Unsafe.SizeOf<T>()
-                };
+                    // Remove the previous matching segment, since this is a 'remove' operation.
+                    bytesFilled -= finalWindows[^1].LengthBytes;
 
-                // Make sure to account for the case of overlap.
-                bytesFilled = Math.Min(bytesFilled + window.LengthBytes, finalWindows[^1].LengthBytes);
+                    finalWindows.RemoveAt(finalWindows.Count - 1);
+                }
             }
-            if (finalWindows.Count > 0 && CanCombine(finalWindows[^1].PElems, bytesFilled, window.PElems, window.LengthBytes))
+            else if (finalWindows.Count > 0 && CanCombine(finalWindows[^1].PElems, bytesFilled, window.PElems, window.LengthBytes))
             {
                 // Combine the segment with the current update window.
                 finalWindows[^1] = new NativeMemorySegment<T>()

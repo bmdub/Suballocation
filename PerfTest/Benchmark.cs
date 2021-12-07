@@ -61,7 +61,8 @@ namespace PerfTest
             double desiredFillPercentage,
             double youthReturnFactor,
             double updateWindowFillPercentage,
-            int updatesPerWindow)
+            int updatesPerWindow,
+            long fragmentBucketLength)
             where T : unmanaged
         {
             long lengthRentedCurrent = 0;
@@ -79,18 +80,19 @@ namespace PerfTest
 
             var imageInfo = new SKImageInfo(imageWidth, imageHeight);
             var surface = SKSurface.Create(imageInfo);
-            double imageScale = imageInfo.Width / (double)suballocator.CapacityLength;
-            var paintFore = new SKPaint { Color = SKColors.Red };
-            var paintBack = new SKPaint { Color = SKColors.Black };
+            double imageScale = imageInfo.Width / (double)suballocator.Length;
+            var paintOccupied = new SKPaint { Color = SKColors.Red };
+            var paintRemoved = new SKPaint { Color = SKColors.Black };
+            var paintMovedFrom = new SKPaint { Color = SKColors.PaleVioletRed };
             var imageYOffset = imageInfo.Height - 1;
             surface.Canvas.Clear(SKColors.Black);
 
             List<NativeMemorySegment<T>> segments = new();
-            List<(bool Rental, NativeMemorySegment<T> Segment, int SegmentIndex)> windowSegments = new(updatesPerWindow);
+            List<(int Type, NativeMemorySegment<T> Segment, int SegmentIndex)> windowSegments = new(updatesPerWindow);
             var windowTracker = new UpdateWindowTracker<T>(updateWindowFillPercentage);
             var random = new Random(seed);
 
-            var fragTracker = new FragmentationTracker<T, int>(suballocator.PElems, suballocator.CapacityLength, 1024);
+            var fragTracker = new FragmentationTracker<T, int>(suballocator.PElems, suballocator.Length, fragmentBucketLength);
 
             Console.WriteLine($"Running {name} ({tag})...");
 
@@ -102,7 +104,7 @@ namespace PerfTest
             {
                 // Randomly choose whether to rent a segment or return an existing one.
                 // Weight this decision by the desired fill ratio for the buffer.
-                double currentFillRatio = lengthRentedCurrent / (double)suballocator.CapacityLength;
+                double currentFillRatio = lengthRentedCurrent / (double)suballocator.Length;
 
                 var rentReturnThreshold = .5 + desiredFillPercentage - currentFillRatio;
 
@@ -122,7 +124,7 @@ namespace PerfTest
                     }
 
                     segments.Add(segment);
-                    windowSegments.Add((true, segment, segments.Count - 1));
+                    windowSegments.Add((1, segment, segments.Count - 1));
 
                     lengthRentedCurrent += segment.Length;
                     lengthRentedTotal += segment.Length;
@@ -138,10 +140,12 @@ namespace PerfTest
                         elapsedTicks += stopwatch.ElapsedTicks;
 
                         // Do some defragging
-                        var fragmented = fragTracker.GetFragmentedSegments(.001).ToList();
+                        var fragmented = fragTracker.GetFragmentedSegments(.1).ToList();
                         foreach (var i in fragmented)
                         {
                             var index = fragTracker.TrackRemoval(segments[i]);
+
+                            windowSegments.Add((3, segments[i], i));
 
                             suballocator.Return(segments[i]);
                         }
@@ -157,7 +161,11 @@ namespace PerfTest
                             segments[i] = movedSegment;
                             windowTracker.TrackAdditionOrUpdate(movedSegment);
                             fragTracker.TrackAddOrUpdate(movedSegment, i);
-                            //Console.WriteLine("defrag");
+                        }
+
+                        if(outOfMemory)
+                        {
+                            break;
                         }
 
                         var updateWindows = windowTracker.BuildUpdateWindows();
@@ -184,7 +192,7 @@ namespace PerfTest
                                 for (int j = (int)offsetX; j < offsetX + width; j++)
                                 {
                                     //if(pixels[j] != true)
-                                    pixels[j] = windowSegments[i].Rental ? (byte)1 : (byte)2;
+                                    pixels[j] = (byte)windowSegments[i].Type;
                                 }
                             }
 
@@ -195,7 +203,15 @@ namespace PerfTest
                                     continue;
                                 }
 
-                                surface.Canvas.DrawRect(i, 0, 1, imageYOffset, pixels[i] == 1 ? paintFore : paintBack);
+                                if (pixels[i] == 3)
+                                {
+                                    surface.Canvas.DrawRect(i, 0, 1, imageYOffset, paintRemoved);
+                                    surface.Canvas.DrawRect(i, imageYOffset, 1, 1, paintMovedFrom);
+                                }
+                                else
+                                {
+                                    surface.Canvas.DrawRect(i, 0, 1, imageYOffset, pixels[i] == 1 ? paintOccupied : paintRemoved);
+                                }
                             }
 
                             imageYOffset--;
@@ -223,7 +239,7 @@ namespace PerfTest
                     segments[swapIndex] = segments[^1];
                     segments.RemoveAt(segments.Count - 1);
 
-                    windowSegments.Add((false, segment, segments.Count - 1));
+                    windowSegments.Add((2, segment, segments.Count - 1));
 
                     fragTracker.TrackRemoval(segment);
 
@@ -269,7 +285,7 @@ namespace PerfTest
             }
 
             // If we didn't fill up the image, then block out the ends of the bars we made.
-            surface.Canvas.DrawRect(0, 0, imageInfo.Width, imageYOffset - 1, paintBack);
+            surface.Canvas.DrawRect(0, 0, imageInfo.Width, imageYOffset - 1, paintRemoved);
 
             // Save the image file
             string imageFileName = Path.Combine(imageFolder, $"{tag}.{name}.png");

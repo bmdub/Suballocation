@@ -2,6 +2,7 @@
 using Suballocation.Trackers;
 using System;
 using System.Linq;
+using System.Runtime.InteropServices;
 
 namespace Suballocation.NUnit
 {
@@ -10,25 +11,27 @@ namespace Suballocation.NUnit
         [Test]
         public unsafe void FragmentationLength1Test()
         {
-            var tracker = new FragmentationTracker<int>(100, 999, 10);
+            var pElems = (int*)NativeMemory.Alloc(1024, sizeof(int));
+
+            var tracker = new FragmentationTracker<int, int>(pElems, 1024, 10);
 
             for (int i = 100; i < 1000; i++)
             {
-                tracker.RegisterUpdate(new NativeMemorySegment<int>() { PElems = (int*)i, Length = 1 }, i * -1);
+                tracker.TrackAdd(new NativeMemorySegment<int>() { PElems = (int*)i, Length = 1 }, i * -1);
             }
 
             Assert.IsEmpty(tracker.GetFragmentedSegments(.99));
 
-            tracker.RegisterRemoval(new NativeMemorySegment<int>() { PElems = (int*)500, Length = 1 });
+            tracker.TrackRemoval(new NativeMemorySegment<int>() { PElems = (int*)500, Length = 1 });
 
             Assert.IsEmpty(tracker.GetFragmentedSegments(.99));
 
-            tracker.RegisterRemoval(new NativeMemorySegment<int>() { PElems = (int*)510, Length = 1 });
+            tracker.TrackRemoval(new NativeMemorySegment<int>() { PElems = (int*)510, Length = 1 });
 
             Assert.AreEqual(18, tracker.GetFragmentedSegments(.99).Count());
 
-            tracker.RegisterRemoval(new NativeMemorySegment<int>() { PElems = (int*)110, Length = 1 });
-            tracker.RegisterRemoval(new NativeMemorySegment<int>() { PElems = (int*)120, Length = 1 });
+            tracker.TrackRemoval(new NativeMemorySegment<int>() { PElems = (int*)110, Length = 1 });
+            tracker.TrackRemoval(new NativeMemorySegment<int>() { PElems = (int*)120, Length = 1 });
 
             Assert.AreEqual(36, tracker.GetFragmentedSegments(.99).Count());
         }
@@ -36,25 +39,27 @@ namespace Suballocation.NUnit
         [Test]
         public unsafe void FragmentationLength5Test()
         {
-            var tracker = new FragmentationTracker<int>(100, 999, 10);
+            var pElems = (int*)NativeMemory.Alloc(1024, sizeof(int));
+
+            var tracker = new FragmentationTracker<int, int>(pElems, 1024, 10);
 
             for (int i = 100; i < 1000; i+=5)
             {
-                tracker.RegisterUpdate(new NativeMemorySegment<int>() { PElems = (int*)i, Length = 5 }, i * -1);
+                tracker.TrackAdd(new NativeMemorySegment<int>() { PElems = (int*)i, Length = 5 }, i * -1);
             }
 
             Assert.IsEmpty(tracker.GetFragmentedSegments(.99));
 
-            tracker.RegisterRemoval(new NativeMemorySegment<int>() { PElems = (int*)500, Length = 5 });
+            tracker.TrackRemoval(new NativeMemorySegment<int>() { PElems = (int*)500, Length = 5 });
 
             Assert.IsEmpty(tracker.GetFragmentedSegments(.99));
 
-            tracker.RegisterRemoval(new NativeMemorySegment<int>() { PElems = (int*)510, Length = 5 });
+            tracker.TrackRemoval(new NativeMemorySegment<int>() { PElems = (int*)510, Length = 5 });
 
             Assert.AreEqual(2, tracker.GetFragmentedSegments(.50).Count());
 
-            tracker.RegisterRemoval(new NativeMemorySegment<int>() { PElems = (int*)110, Length = 5 });
-            tracker.RegisterRemoval(new NativeMemorySegment<int>() { PElems = (int*)120, Length = 5 });
+            tracker.TrackRemoval(new NativeMemorySegment<int>() { PElems = (int*)110, Length = 5 });
+            tracker.TrackRemoval(new NativeMemorySegment<int>() { PElems = (int*)120, Length = 5 });
 
             Assert.AreEqual(4, tracker.GetFragmentedSegments(.50).Count());
 
@@ -64,11 +69,13 @@ namespace Suballocation.NUnit
         [Test]
         public unsafe void GetTagTest()
         {
-            var tracker = new FragmentationTracker<int>(100, 999, 10);
+            var pElems = (int*)NativeMemory.Alloc(1024, sizeof(int));
+
+            var tracker = new FragmentationTracker<int, int>(pElems, 1024, 10);
 
             for (int i = 100; i < 1000; i++)
             {
-                tracker.RegisterUpdate(new NativeMemorySegment<int>() { PElems = (int*)i, Length = 1 }, i * -1);
+                tracker.TrackAdd(new NativeMemorySegment<int>() { PElems = (int*)i, Length = 1 }, i * -1);
             }
 
             for (int i = 100; i < 1000; i++)
@@ -84,16 +91,18 @@ namespace Suballocation.NUnit
         [Test]
         public unsafe void RemovalTagTest()
         {
-            var tracker = new FragmentationTracker<int>(100, 999, 10);
+            var pElems = (int*)NativeMemory.Alloc(1024, sizeof(int));
+
+            var tracker = new FragmentationTracker<int, int>(pElems, 1024, 10);
 
             for (int i = 100; i < 1000; i++)
             {
-                tracker.RegisterUpdate(new NativeMemorySegment<int>() { PElems = (int*)i, Length = 1 }, i * -1);
+                tracker.TrackAdd(new NativeMemorySegment<int>() { PElems = (int*)i, Length = 1 }, i * -1);
             }
 
             for (int i = 100; i < 1000; i += 3)
             {
-                tracker.RegisterRemoval(new NativeMemorySegment<int>() { PElems = (int*)i, Length = 1 });
+                tracker.TrackRemoval(new NativeMemorySegment<int>() { PElems = (int*)i, Length = 1 });
             }
 
             for (int i = 100; i < 1000; i++)
@@ -116,11 +125,13 @@ namespace Suballocation.NUnit
         [Test]
         public unsafe void ClearTest()
         {
-            var tracker = new FragmentationTracker<int>(100, 999, 10);
+            var pElems = (int*)NativeMemory.Alloc(1024, sizeof(int));
+
+            var tracker = new FragmentationTracker<int, int>(pElems, 1024, 10);
 
             for (int i = 100; i < 1000; i++)
             {
-                tracker.RegisterUpdate(new NativeMemorySegment<int>() { PElems = (int*)i, Length = 1 }, i * -1);
+                tracker.TrackAdd(new NativeMemorySegment<int>() { PElems = (int*)i, Length = 1 }, i * -1);
             }
 
             tracker.Clear();

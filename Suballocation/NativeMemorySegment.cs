@@ -1,35 +1,64 @@
 ﻿using Suballocation.Suballocators;
-using System.Collections;
 
 namespace Suballocation;
 
 /// <summary>
 /// Lightweight structure that represents a segment of unmanaged memory allocated from a suballocator.
+/// Note that this class is unsafe, and most forms of validation are intentionally omitted. Use at your own risk.
 /// </summary>
 [DebuggerDisplay("[0x{(ulong)_ptr}] Length: {_length}, Value: {this[0]}")]
-public unsafe readonly record struct NativeMemorySegment<T> : ISegment<T> where T : unmanaged
+[StructLayout(LayoutKind.Sequential, Pack = 1)]
+public unsafe readonly record struct NativeMemorySegment<T> : ISegment, IEnumerable<T> where T : unmanaged
 {
     private readonly IntPtr _ptr;
     private readonly long _length;
+    private readonly uint _suballocatorId;
 
-    public unsafe NativeMemorySegment(T* ptr, long length)
+    /// <summary></summary>
+    /// <param name="suballocatorHandlePtr">An ID belonging to a registered ISuballocator<typeparamref name="T"/> instance used to allocatee this segment.</param>
+    /// <param name="ptr">A pointer to the start of the memory segment in unmanaged memory.</param>
+    /// <param name="length">The unit length of the segment.</param>
+    public unsafe NativeMemorySegment(uint suballocatorId, T* ptr, long length)
     {
+        // Using pointers instead of references to avoid GC overhead.
+        _suballocatorId = suballocatorId;
         _ptr = (IntPtr)ptr;
         _length = length;
     }
 
-    public unsafe void* PBytes { get => (void*)_ptr; init => _ptr = (IntPtr)value; }
+    /// <summary>Pointer to the start of the pinned segment in unmanaged memory.</summary>
+    public unsafe T* PElems { get => (T*)_ptr; init => _ptr = (IntPtr)value; }
+
+    /// <summary>The total unit length of segment.</summary>
+    public long Length { get => _length; init => _length = value; }
+
+    /// <summary>A reference to the first or only value of the segment.</summary>
+    public ref T Value => ref *(T*)_ptr;
+
+    /// <summary>A reference to the ith element of the segment.</summary>
+    public ref T this[long index] => ref ((T*)_ptr)[index];
+
+    /// <summary>The suballocator that allocated this segment, or Null if not found or disposed.</summary>
+    public ISuballocator<T>? Suballocator 
+    { 
+        get        
+        {
+            if(SuballocatorTable<T>.TryGetByID(_suballocatorId, out var suballocator) == false)
+            {
+                return null;
+            }
+
+            return suballocator;
+        }
+    }
+
+    public unsafe void* PBytes { get => (T*)_ptr; }
 
     public long LengthBytes => _length * Unsafe.SizeOf<T>();
 
-    public unsafe T* PElems { get => (T*)_ptr; init => _ptr = (IntPtr)value; }
+    ISuballocator ISegment.Suballocator => Suballocator!;
 
-    public long Length { get => _length; init => _length = value; }
-
-    public ref T Value => ref *(T*)_ptr;
-
-    public ref T this[long index] => ref ((T*)_ptr)[index];
-
+    /// <summary>A Span<typeparamref name="T"/> on top of the segment.</summary>
     public Span<T> AsSpan()
     {
         if (_length > int.MaxValue) throw new InvalidOperationException($"Unable to return a Span<T> for a range that is larger than int.Maxvalue.");
@@ -50,4 +79,9 @@ public unsafe readonly record struct NativeMemorySegment<T> : ISegment<T> where 
 
     IEnumerator IEnumerable.GetEnumerator() =>
         GetEnumerator();
+
+    public void Dispose()
+    {
+        Suballocator?.Return(this);
+    }
 }

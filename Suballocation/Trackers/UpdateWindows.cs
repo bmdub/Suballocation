@@ -7,7 +7,7 @@ namespace Suballocation.Trackers;
 /// Collection that contains a list of update windows, indicating which parts of a suballocator's buffer were updated.
 /// </summary>
 /// <typeparam name="T"></typeparam>
-public class UpdateWindows<T> : IEnumerable<ISegment<T>> where T : unmanaged
+public class UpdateWindows<T> : IEnumerable<NativeMemorySegment<T>> where T : unmanaged
 {
     private IReadOnlyList<NativeMemorySegment<T>> _windows;
 
@@ -46,10 +46,10 @@ public class UpdateWindows<T> : IEnumerable<ISegment<T>> where T : unmanaged
     public long Count { get => _windows.Count; }
 
     /// <summary>Gets the update window at the ith position.</summary>
-    public ISegment<T> this[int index] => _windows[index];
+    public NativeMemorySegment<T> this[int index] => _windows[index];
 
     /// <summary>Gets an enumerator over the update windows.</summary>
-    public IEnumerator<ISegment<T>> GetEnumerator() => _windows.Cast<ISegment<T>>().GetEnumerator();
+    public IEnumerator<NativeMemorySegment<T>> GetEnumerator() => _windows.Cast<NativeMemorySegment<T>>().GetEnumerator();
 
-    IEnumerator IEnumerable.GetEnumerator() => _windows.Cast<ISegment<T>>().GetEnumerator();
+    IEnumerator IEnumerable.GetEnumerator() => _windows.Cast<NativeMemorySegment<T>>().GetEnumerator();
 }

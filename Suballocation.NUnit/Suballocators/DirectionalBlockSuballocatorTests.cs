@@ -13,7 +13,7 @@ namespace Suballocation.NUnit
         {
             var allocator = new DirectionalBlockSuballocator<int>(1024, 1);
 
-            Assert.AreEqual(1024, allocator.FreeLength);
+            Assert.AreEqual(1024, allocator.Free);
         }
 
         public unsafe void Constructor2Test()
@@ -22,7 +22,7 @@ namespace Suballocation.NUnit
 
             var allocator = new DirectionalBlockSuballocator<int>(pElems, 1024, 1);
 
-            Assert.AreEqual(1024, allocator.FreeLength);
+            Assert.AreEqual(1024, allocator.Free);
         }
 
         public void Constructor3Test()
@@ -31,7 +31,7 @@ namespace Suballocation.NUnit
 
             var allocator = new DirectionalBlockSuballocator<int>(mem, 1);
 
-            Assert.AreEqual(1024, allocator.FreeLength);
+            Assert.AreEqual(1024, allocator.Free);
         }
 
         [Test]
@@ -46,7 +46,7 @@ namespace Suballocation.NUnit
             }
 
             Assert.AreEqual(0, allocator.FreeBytes);
-            Assert.AreEqual(0, allocator.FreeLength);
+            Assert.AreEqual(0, allocator.Free);
         }
 
         [Test]
@@ -89,7 +89,7 @@ namespace Suballocation.NUnit
             Assert.Throws<OutOfMemoryException>(() => allocator.Rent(1));
 
             Assert.AreEqual(0, allocator.FreeBytes);
-            Assert.AreEqual(0, allocator.FreeLength);
+            Assert.AreEqual(0, allocator.Free);
 
             foreach (var segment in segments)
             {
@@ -97,7 +97,7 @@ namespace Suballocation.NUnit
             }
 
             Assert.AreEqual(65536 * sizeof(int), allocator.FreeBytes);
-            Assert.AreEqual(65536, allocator.FreeLength);
+            Assert.AreEqual(65536, allocator.Free);
         }
 
         [Test]
@@ -115,11 +115,11 @@ namespace Suballocation.NUnit
 
             foreach (var segment in segments)
             {
-                allocator.Return(segment);
+                segment.Dispose();
             }
 
             Assert.AreEqual(32640 * sizeof(int), allocator.FreeBytes);
-            Assert.AreEqual(32640, allocator.FreeLength);
+            Assert.AreEqual(32640, allocator.Free);
         }
 
         [Test]
@@ -139,35 +139,11 @@ namespace Suballocation.NUnit
 
             foreach (var segment in segments)
             {
-                allocator.Return(segment);
-            }
-
-            Assert.AreEqual(32640 * sizeof(int), allocator.FreeBytes);
-            Assert.AreEqual(32640, allocator.FreeLength);
-        }
-
-        [Test]
-        public void ReturnSegmentResourcesTest()
-        {
-            var allocator = new DirectionalBlockSuballocator<int>(32640, 1);
-
-            List<NativeMemorySegmentResource<int>> segments = new();
-
-            for (int i = 1; i <= 255; i++)
-            {
-                var segment = allocator.RentResource(i);
-                segments.Add(segment);
-            }
-
-            segments.Reverse();
-
-            foreach (var segment in segments)
-            {
                 segment.Dispose();
             }
 
             Assert.AreEqual(32640 * sizeof(int), allocator.FreeBytes);
-            Assert.AreEqual(32640, allocator.FreeLength);
+            Assert.AreEqual(32640, allocator.Free);
         }
 
         [Test]
@@ -179,8 +155,6 @@ namespace Suballocation.NUnit
 
             Assert.Throws<ArgumentOutOfRangeException>(() => allocator.Rent(0));
             Assert.Throws<ArgumentOutOfRangeException>(() => allocator.Rent(-1));
-            Assert.Throws<ArgumentOutOfRangeException>(() => allocator.RentResource(0));
-            Assert.Throws<ArgumentOutOfRangeException>(() => allocator.RentResource(-1));
 
             var segment = allocator.Rent(100);
 

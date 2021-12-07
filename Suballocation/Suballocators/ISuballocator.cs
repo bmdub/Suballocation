@@ -10,7 +10,7 @@ public unsafe interface ISuballocator : IDisposable
     public long UsedBytes { get; }
 
     /// <summary>The total size of backing buffer.</summary>
-    public long CapacityBytes { get; }
+    public long LengthBytes { get; }
 
     /// <summary>The total size of the free buffer space available to the allocator (not necessarily contiguous).</summary>
     public long FreeBytes { get; }
@@ -28,13 +28,13 @@ public unsafe interface ISuballocator : IDisposable
 public unsafe interface ISuballocator<T> : ISuballocator, IEnumerable<NativeMemorySegment<T>> where T : unmanaged
 {
     /// <summary>The total unit count of the outstanding rented memory segments.</summary>
-    public long UsedLength { get; }
+    public long Used { get; }
 
     /// <summary>The total unit length of backing buffer.</summary>
-    public long CapacityLength { get; }
+    public long Length { get; }
 
     /// <summary>The total unit count free elements available to the allocator (not necessarily contiguous).</summary>
-    public long FreeLength { get; }
+    public long Free { get; }
 
     /// <summary>Pointer to the start of the pinned backing buffer.</summary>
     public T* PElems { get; }

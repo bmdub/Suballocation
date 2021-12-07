@@ -48,36 +48,74 @@ public partial class Program
         }
 
         // Run a test for each suballocator.
-        string tag = "Random";
+        {
+            string tag = "Random Short";
 
-        var results =
-            GetSuballocators<SomeStruct>(length: 1L << 25, blockLength: 2)
-                .Select(suballocator =>
-                    Benchmark.Run(
-                        imageFolder: _imageFolder,
-                        name: suballocator.GetType().Name.Replace("`1", ""),
-                        tag: tag,
-                        suballocator: suballocator,
-                        seed: 0,
-                        imageWidth: _imageWidth, imageHeight: _imageHeight,
-                        totalLengthToRent: 320_000_000,
-                        minSegmentLenInitial: 1, minSegmentLenFinal: 1,
-                        maxSegmentLenInitial: 65536 * 1, maxSegmentLenFinal: 32,
-                        desiredFillPercentage: .8,
-                        youthReturnFactor: .5,
-                        updateWindowFillPercentage: .21,
-                        updatesPerWindow: 10))
-                .ToList();
-        //.Run(.50f, minSegLen, maxSegLen, updateWindowTracker, 10000)
-        //.Run(50_000_000_000, minSegLen, minSegLen, maxSegLen, maxSegLen, .55, .5, updateWindowTracker, 100)
-        //.Run(100_000_000, minSegLen, minSegLen, maxSegLen, maxSegLen, .15, .5, updateWindowTracker, 200)
+            var results =
+                GetSuballocators<SomeStruct>(length: 2048, blockLength: 1)
+                    .Select(suballocator =>
+                        Benchmark.Run(
+                            imageFolder: _imageFolder,
+                            name: suballocator.GetType().Name.Replace("`1", ""),
+                            tag: tag,
+                            suballocator: suballocator,
+                            seed: 0,
+                            imageWidth: _imageWidth, imageHeight: _imageHeight,
+                            totalLengthToRent: 32_000,
+                            minSegmentLenInitial: 1, minSegmentLenFinal: 1,
+                            maxSegmentLenInitial: 32 * 1, maxSegmentLenFinal: 2,
+                            desiredFillPercentage: .8,
+                            youthReturnFactor: .5,
+                            updateWindowFillPercentage: .21,
+                            updatesPerWindow: 10,
+                            fragmentBucketLength: 128))
+                    .ToList();
+            //.Run(.50f, minSegLen, maxSegLen, updateWindowTracker, 10000)
+            //.Run(50_000_000_000, minSegLen, minSegLen, maxSegLen, maxSegLen, .55, .5, updateWindowTracker, 100)
+            //.Run(100_000_000, minSegLen, minSegLen, maxSegLen, maxSegLen, .15, .5, updateWindowTracker, 200)
 
-        // Display results.
-        results.ShowConsole(tag);
-        results.ShowBarGraph(_imageFolder, $"{tag}.Duration", _imageWidth, _imageHeight, "Name", "Duration (ms)");
-        results.ShowPatternImages();
+            // Display results.
+            results.ShowConsole(tag);
+            results.ShowBarGraph(_imageFolder, $"{tag}.Duration", _imageWidth, _imageHeight, "Name", "Duration (ms)");
+            results.ShowPatternImages();
 
-        Console.ReadKey();
+            Console.ReadKey();
+        }
+
+        // Run a test for each suballocator.
+        {
+            string tag = "Random";
+
+            var results =
+                GetSuballocators<SomeStruct>(length: 1L << 25, blockLength: 2)
+                    .Select(suballocator =>
+                        Benchmark.Run(
+                            imageFolder: _imageFolder,
+                            name: suballocator.GetType().Name.Replace("`1", ""),
+                            tag: tag,
+                            suballocator: suballocator,
+                            seed: 0,
+                            imageWidth: _imageWidth, imageHeight: _imageHeight,
+                            totalLengthToRent: 320_000_000,
+                            minSegmentLenInitial: 1, minSegmentLenFinal: 1,
+                            maxSegmentLenInitial: 65536 * 1, maxSegmentLenFinal: 32,
+                            desiredFillPercentage: .8,
+                            youthReturnFactor: .5,
+                            updateWindowFillPercentage: .21,
+                            updatesPerWindow: 10,
+                            fragmentBucketLength: 128))
+                    .ToList();
+            //.Run(.50f, minSegLen, maxSegLen, updateWindowTracker, 10000)
+            //.Run(50_000_000_000, minSegLen, minSegLen, maxSegLen, maxSegLen, .55, .5, updateWindowTracker, 100)
+            //.Run(100_000_000, minSegLen, minSegLen, maxSegLen, maxSegLen, .15, .5, updateWindowTracker, 200)
+
+            // Display results.
+            results.ShowConsole(tag);
+            results.ShowBarGraph(_imageFolder, $"{tag}.Duration", _imageWidth, _imageHeight, "Name", "Duration (ms)");
+            results.ShowPatternImages();
+
+            Console.ReadKey();
+        }
     }
 
     /// <summary>

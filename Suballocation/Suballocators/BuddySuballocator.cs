@@ -28,6 +28,7 @@ public static class BuddySuballocator
 public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T : unmanaged
 {
     public long MinBlockLength;
+    private readonly uint _id;
     private readonly MemoryHandle _memoryHandle;
     private readonly bool _privatelyOwned;
     private T* _pElems;
@@ -47,9 +48,10 @@ public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T
         if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length), $"Cannot allocate a backing buffer of size <= 0.");
         if (minBlockLength > length) throw new ArgumentOutOfRangeException(nameof(minBlockLength), $"Cannot have a block size that's larger than {nameof(length)}.");
 
-        CapacityLength = length;
+        _id = SuballocatorTable<T>.Register(this);
+        Length = length;
         _privatelyOwned = true;
-
+        
         _pElems = (T*)NativeMemory.Alloc((nuint)length, (nuint)Unsafe.SizeOf<T>());
 
         Init(minBlockLength);
@@ -67,7 +69,8 @@ public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T
         if (minBlockLength > length) throw new ArgumentOutOfRangeException(nameof(minBlockLength), $"Cannot have a block size that's larger than {nameof(length)}.");
         if (pElems == null) throw new ArgumentNullException(nameof(pElems));
 
-        CapacityLength = length;
+        _id = SuballocatorTable<T>.Register(this);
+        Length = length;
 
         _pElems = pElems;
 
@@ -83,7 +86,8 @@ public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T
         if (data.Length == 0) throw new ArgumentOutOfRangeException(nameof(data), $"Cannot allocate a backing buffer of size <= 0.");
         if (minBlockLength > (uint)data.Length) throw new ArgumentOutOfRangeException(nameof(minBlockLength), $"Cannot have a block size that's larger than {nameof(data.Length)}.");
 
-        CapacityLength = (long)data.Length;
+        _id = SuballocatorTable<T>.Register(this);
+        Length = (long)data.Length;
         _memoryHandle = data.Pin();
 
         _pElems = (T*)_memoryHandle.Pointer;
@@ -93,19 +97,19 @@ public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T
 
     public long BlocksUsed { get; private set; }
 
-    public long UsedBytes => UsedLength * (long)Unsafe.SizeOf<T>();
+    public long UsedBytes => Used * (long)Unsafe.SizeOf<T>();
 
-    public long CapacityBytes => CapacityLength * (long)Unsafe.SizeOf<T>();
+    public long LengthBytes => Length * (long)Unsafe.SizeOf<T>();
 
-    public long FreeBytes { get => CapacityBytes - UsedBytes; }
+    public long FreeBytes { get => LengthBytes - UsedBytes; }
 
     public long Allocations { get; private set; }
 
-    public long UsedLength { get => BlocksUsed * MinBlockLength; }
+    public long Used { get => BlocksUsed * MinBlockLength; }
 
-    public long CapacityLength { get; init; }
+    public long Length { get; init; }
 
-    public long FreeLength { get => CapacityLength - UsedLength; }
+    public long Free { get => Length - Used; }
 
     public T* PElems => _pElems;
 
@@ -116,7 +120,7 @@ public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T
     {
         MinBlockLength = (long)BitOperations.RoundUpToPowerOf2((ulong)minBlockLength);
 
-        _indexLength = CapacityLength >> BitOperations.Log2((ulong)MinBlockLength);
+        _indexLength = Length >> BitOperations.Log2((ulong)MinBlockLength);
         _pIndex = (BlockHeader*)NativeMemory.AllocZeroed((nuint)(_indexLength * (long)sizeof(BlockHeader)));
         _maxBlockLength = (long)BitOperations.RoundUpToPowerOf2((ulong)_indexLength);
         _freeBlockIndexesStart = new long[BitOperations.Log2((ulong)_maxBlockLength) + 1];
@@ -223,7 +227,7 @@ public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T
         Allocations++;
         BlocksUsed += header.BlockCount;
 
-        segment = new NativeMemorySegment<T>(_pElems + freeBlockIndexIndex * MinBlockLength, header.BlockCount * MinBlockLength);
+        segment = new NativeMemorySegment<T>(_id, _pElems + freeBlockIndexIndex * MinBlockLength, header.BlockCount * MinBlockLength);
         return true;
     }
 
@@ -370,7 +374,7 @@ public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T
             }
 
             NativeMemorySegment<T> GenerateSegment() =>
-                new NativeMemorySegment<T>(_pElems + index * MinBlockLength, header.BlockCount * MinBlockLength);
+                new NativeMemorySegment<T>(_id, _pElems + index * MinBlockLength, header.BlockCount * MinBlockLength);
 
             if(header.Occupied == true)
             {
@@ -389,6 +393,8 @@ public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T
             {
                 // TODO: dispose managed state (managed objects)
             }
+
+            SuballocatorTable<T>.Deregister(_id);
 
             NativeMemory.Free(_pIndex);
 
