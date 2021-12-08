@@ -12,15 +12,3 @@ public interface IRangedEntry
     /// <summary>The count of elements including and following the offset.</summary>
     public long RangeLength { get; }
 }
-
-/// <summary>
-/// Extension methods for IRangedEntry.
-/// </summary>
-public static class RangedEntryExtensions
-{
-    /// <summary>Returns the inclusive end index of the range.</summary>
-    public static long RangeEndOffset(this IRangedEntry rangedEntry)
-    {
-        return rangedEntry.RangeOffset + rangedEntry.RangeLength - 1;
-    }
-}

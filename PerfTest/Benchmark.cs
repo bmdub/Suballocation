@@ -131,8 +131,8 @@ namespace PerfTest
                     lengthRentedTotal += segment.Length;
                     countRentedWindow++;
 
-                    windowTracker.TrackAdditionOrUpdate(segment);
-                    fragTracker.TrackAdditionOrUpdate(segment);
+                    windowTracker.TrackRental(segment);
+                    fragTracker.TrackUpdate(segment);
 
                     // After every N rentals, "apply" them; coalesce into update windows.
                     if (countRentedWindow >= updatesPerWindow)
@@ -147,7 +147,7 @@ namespace PerfTest
                             var removed = new List<(int SegmentIndex, long Length)>();
                             foreach (var seg in fragmented)
                             {
-                                fragTracker.TrackRemoval(seg);
+                                fragTracker.TrackReturn(seg);
                                 if (fragTracker.GetFragmentedSegments(.1).Where(s => s.RangeOffset == seg.RangeOffset).Any())
                                     Debugger.Break();
 
@@ -173,8 +173,8 @@ namespace PerfTest
 
                                 segmentsByOffset[movedSegment.RangeOffset] = removal.SegmentIndex;
                                 segments[removal.SegmentIndex] = movedSegment;
-                                windowTracker.TrackAdditionOrUpdate(movedSegment);
-                                fragTracker.TrackAdditionOrUpdate(movedSegment);
+                                windowTracker.TrackRental(movedSegment);
+                                fragTracker.TrackUpdate(movedSegment);
                             }
 
                             if (outOfMemory)
@@ -261,7 +261,7 @@ namespace PerfTest
                         segmentsByOffset[segments[swapIndex].RangeOffset] = swapIndex;
                     }
 
-                    fragTracker.TrackRemoval(segment);
+                    fragTracker.TrackReturn(segment);
                     segmentsByOffset.Remove(segment.RangeOffset);
                     suballocator.Return(segment);
 

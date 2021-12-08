@@ -12,7 +12,7 @@ public class UpdateWindowTracker<TSeg> : UpdateWindowTracker<TSeg, EmptyStruct> 
 /// </summary>
 /// <typeparam name="TSeg">A blittable element type that defines the units to allocate.</typeparam>
 /// <typeparam name="TTag">Type to be tied to each segment, as a separate entity from the segment contents. Use 'EmptyStruct' if none is desired.</typeparam>
-public class UpdateWindowTracker<TSeg, TTag> where TSeg : unmanaged
+public class UpdateWindowTracker<TSeg, TTag> : ISegmentTracker<TSeg, TTag> where TSeg : unmanaged
 {
     private static readonly Comparer<NativeMemorySegment<TSeg, TTag>> _segmentComparer;
     private readonly List<NativeMemorySegment<TSeg, TTag>> _segments = new();
@@ -33,16 +33,17 @@ public class UpdateWindowTracker<TSeg, TTag> where TSeg : unmanaged
     /// <summary>A threshold between 0 and 1. If any two update windows have a "used" to "combined length" ratio above this, then they will be combined.</summary>
     public double MinimumFillPercentage => _minimumFillPercentage;
 
-    /// <summary>Tells the tracker to note this newly-rented or updated segment.</summary>
-    /// <param name="segment"></param>
-    public void TrackAdditionOrUpdate(NativeMemorySegment<TSeg, TTag> segment)
+    public void TrackRental(NativeMemorySegment<TSeg, TTag> segment)
     {
         _segments.Add(segment);
     }
 
-    /// <summary>Tells the tracker to note this removed segment.</summary>
-    /// <param name="segment"></param>
-    public unsafe void TrackRemoval(NativeMemorySegment<TSeg, TTag> segment)
+    public void TrackUpdate(NativeMemorySegment<TSeg, TTag> segment)
+    {
+        _segments.Add(segment);
+    }
+
+    public unsafe void TrackReturn(NativeMemorySegment<TSeg, TTag> segment)
     {
         _segments.Add(new NativeMemorySegment<TSeg, TTag>(null, segment.PSegment, segment.Length, segment.Tag));
     }
@@ -99,7 +100,6 @@ public class UpdateWindowTracker<TSeg, TTag> where TSeg : unmanaged
         return new UpdateWindows<TSeg, TTag>(finalWindows);
     }
 
-    /// <summary>Clears the tracker of all state, so it can be reused.</summary>
     public void Clear()
     {
         _segments.Clear();

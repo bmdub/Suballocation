@@ -12,7 +12,7 @@ public unsafe class FragmentationTracker<TSeg> : FragmentationTracker<TSeg, Empt
 /// </summary>
 /// <typeparam name="TSeg">A blittable element type that defines the units to allocate.</typeparam>
 /// <typeparam name="TTag">Type to be tied to each segment, as a separate entity from the segment contents. Use 'EmptyStruct' if none is desired.</typeparam>
-public class FragmentationTracker<TSeg, TTag> where TSeg : unmanaged
+public class FragmentationTracker<TSeg, TTag> : ISegmentTracker<TSeg, TTag> where TSeg : unmanaged
 { 
     private readonly OrderedRangeBucketDictionary<NativeMemorySegment<TSeg, TTag>> _dict;
 
@@ -24,25 +24,17 @@ public class FragmentationTracker<TSeg, TTag> where TSeg : unmanaged
         _dict = new OrderedRangeBucketDictionary<NativeMemorySegment<TSeg, TTag>>(0, length - 1, bucketLength);
     }
 
-    /// <summary>Tells the tracker to note this newly-rented segment.</summary>
-    /// <param name="segment">The added memory segment.</param>
-    /// <param name="tag">An item to associate with this segment, for later retrieval.</param>
-    public void TrackAddition(NativeMemorySegment<TSeg, TTag> segment)
+    public void TrackRental(NativeMemorySegment<TSeg, TTag> segment)
     {
         _dict.Add(segment);
     }
 
-    /// <summary>Tells the tracker to note this added/updated segment.</summary>
-    /// <param name="segment">The new/updated memory segment.</param>
-    /// <param name="tag">An item to associate with this segment, for later retrieval.</param>
-    public void TrackAdditionOrUpdate(NativeMemorySegment<TSeg, TTag> segment)
+    public void TrackUpdate(NativeMemorySegment<TSeg, TTag> segment)
     {
         _dict[segment.RangeOffset] = segment;
     }
 
-    /// <summary>Tells the tracker to note this newly-removed segment.</summary>
-    /// <param name="segment">The memory segment that was removed from its buffer.</param>
-    public void TrackRemoval(NativeMemorySegment<TSeg, TTag> segment)
+    public void TrackReturn(NativeMemorySegment<TSeg, TTag> segment)
     {
         if (_dict.Remove(segment.RangeOffset, out _) == false)
         {
@@ -76,7 +68,6 @@ public class FragmentationTracker<TSeg, TTag> where TSeg : unmanaged
         }
     }
 
-    /// <summary>Clears all registered segments from the tracker.</summary>
     public void Clear()
     {
         _dict.Clear();
