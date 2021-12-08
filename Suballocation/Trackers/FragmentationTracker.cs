@@ -10,8 +10,8 @@ public unsafe class FragmentationTracker<TSeg> : FragmentationTracker<TSeg, Empt
 /// <summary>
 /// Provides the ability to approximately track fragmented segments in a buffer.
 /// </summary>
-/// <typeparam name="TSeg">A blittable element type that defines the units to allocate.</typeparam>
-/// <typeparam name="TTag">Type to be tied to each segment, as a separate entity from the segment contents. Use 'EmptyStruct' if none is desired.</typeparam>
+/// <typeparam name="TSeg">A blittable element type that defines the units of a suballocation.</typeparam>
+/// <typeparam name="TTag">Tag type for each the segments.</typeparam>
 public class FragmentationTracker<TSeg, TTag> : ISegmentTracker<TSeg, TTag> where TSeg : unmanaged
 { 
     private readonly OrderedRangeBucketDictionary<NativeMemorySegment<TSeg, TTag>> _dict;
@@ -41,15 +41,6 @@ public class FragmentationTracker<TSeg, TTag> : ISegmentTracker<TSeg, TTag> wher
             throw new KeyNotFoundException();
         }
     }
-
-    /*/// <summary>Gets the segment with the given offset.</summary>
-    /// <param name="offset">The unit offset of the segment.</param>
-    /// <param name="segment">The segment, if found.</param>
-    /// <returns>True if found.</returns>
-    public bool TryGetSegment(long offset, out NativeMemorySegment<TSeg, TTag> segment)
-    {
-        return _dict.TryGetValue(offset, out segment);
-    }*/
 
     /// <summary>Searches the collection for segments that are fragmented, and returns them, unordered.</summary>
     /// <param name="minimumFragmentationPct">The fragmentation threshold at which segments are deemed fragmented.</param>

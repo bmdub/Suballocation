@@ -4,7 +4,7 @@ using Suballocation.Suballocators;
 namespace Suballocation;
 
 /// <summary>
-/// Provides basic information about a rented segment from a suballocator.
+/// Exposes basic information about a segment rented from a suballocator.
 /// </summary>
 public interface ISegment : IDisposable
 {

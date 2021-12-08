@@ -14,10 +14,10 @@ public unsafe sealed class DirectionalBlockSuballocator<TSeg> : DirectionalBlock
 }
 
 /// <summary>
-/// A suballocator that uses a heuristic to converge on a nearby free segment in either direction when locating a segment to rent.
+/// A suballocator that uses a heuristic to determine the direction in which to search for the next segment to rent.
 /// </summary>
 /// <typeparam name="TSeg">A blittable element type that defines the units to allocate.</typeparam>
-/// <typeparam name="TTag">Type to be tied to each segment, as a separate entity from the segment contents. Use 'EmptyStruct' if none is desired.</typeparam>
+/// <typeparam name="TTag">Type to be tied to each segment, as a separate entity from the segment contents.</typeparam>
 public unsafe class DirectionalBlockSuballocator<TSeg, TTag> : ISuballocator<TSeg, TTag>, IDisposable where TSeg : unmanaged
 {
     private readonly TSeg* _pElems;
@@ -235,7 +235,7 @@ public unsafe class DirectionalBlockSuballocator<TSeg, TTag> : ISuballocator<TSe
                 continue;
             }
 
-            // Big enough, and free to use...
+            // Big enough segment found, and free to use...
 
             long targetIndex = _currentIndex;
 
@@ -396,9 +396,6 @@ public unsafe class DirectionalBlockSuballocator<TSeg, TTag> : ISuballocator<TSe
                 _freeBlockBalance -= blockCount;
             }
         }
-
-        //Debug.Assert(rangeStart + rangeLength <= _blockCount || _pIndex[rangeStart].BlockCount > 0);
-        //Debug.Assert(rangeStart + rangeLength >= _blockCount || _pIndex[rangeStart + rangeLength].BlockCount > 0);
 
         return true;
     }

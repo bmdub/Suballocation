@@ -24,7 +24,7 @@ namespace Suballocation.NUnit
 
             tracker.TrackReturn(new NativeMemorySegment<int, int>() { PBuffer = pElems, PSegment = pElems + 500, Length = 1 });
 
-            Assert.IsEmpty(tracker.GetFragmentedSegments(.1));
+            Assert.AreEqual(9, tracker.GetFragmentedSegments(.1).Count());
 
             tracker.TrackReturn(new NativeMemorySegment<int, int>() { PBuffer = pElems, PSegment = pElems + 510, Length = 1 });
 
@@ -52,7 +52,7 @@ namespace Suballocation.NUnit
 
             tracker.TrackReturn(new NativeMemorySegment<int, int>() { PBuffer = pElems, PSegment = pElems + 500, Length = 5 });
 
-            Assert.IsEmpty(tracker.GetFragmentedSegments(.1));
+            Assert.AreEqual(1, tracker.GetFragmentedSegments(.1).Count());
 
             tracker.TrackReturn(new NativeMemorySegment<int, int>() { PBuffer = pElems, PSegment = pElems + 510, Length = 5 });
 
@@ -65,62 +65,6 @@ namespace Suballocation.NUnit
 
             Assert.IsEmpty(tracker.GetFragmentedSegments(.51));
         }
-
-        /*[Test]
-        public unsafe void GetSegTest()
-        {
-            var pElems = (int*)NativeMemory.Alloc(1024, sizeof(int));
-
-            var tracker = new FragmentationTracker<int, int>(1024, 10);
-
-            for (int i = 100; i < 1000; i++)
-            {
-                tracker.TrackAddition(new NativeMemorySegment<int, int>() { PBuffer = pElems, PSegment = pElems + i, Length = 1, Tag = i * -1 });
-            }
-
-            for (int i = 100; i < 1000; i++)
-            {
-                bool success = tracker.tryg(new NativeMemorySegment<int, int>() { PBuffer = pElems, PSegment = pElems + i, Length = 1 }, out var tag);
-
-                Assert.IsTrue(success);
-
-                Assert.AreEqual(i * -1, tag);
-            }
-        }
-
-        [Test]
-        public unsafe void RemovalSegTest()
-        {
-            var pElems = (int*)NativeMemory.Alloc(1024, sizeof(int));
-
-            var tracker = new FragmentationTracker<int, int>(1024, 10);
-
-            for (int i = 100; i < 1000; i++)
-            {
-                tracker.TrackAddition(new NativeMemorySegment<int, int>() { PBuffer = pElems, PSegment = pElems + i, Length = 1, Tag = i * -1 });
-            }
-
-            for (int i = 100; i < 1000; i += 3)
-            {
-                tracker.TrackRemoval(new NativeMemorySegment<int, int>() { PBuffer = pElems, PSegment = pElems + i, Length = 1 });
-            }
-
-            for (int i = 100; i < 1000; i++)
-            {
-                bool success = tracker.TryGetTag(new NativeMemorySegment<int, int>() { PBuffer = pElems, PSegment = pElems + i, Length = 1 }, out var tag);
-
-                if ((i - 100) % 3 == 0)
-                {
-                    Assert.IsFalse(success);
-                }
-                else
-                {
-                    Assert.IsTrue(success);
-
-                    Assert.AreEqual(i * -1, tag);
-                }
-            }
-        }*/
 
         [Test]
         public unsafe void ClearTest()

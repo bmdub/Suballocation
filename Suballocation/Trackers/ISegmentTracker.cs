@@ -1,6 +1,11 @@
 ﻿
 namespace Suballocation.Trackers;
 
+/// <summary>
+/// Exposes suballocation segment tracking functionality.
+/// </summary>
+/// <typeparam name="TSeg">A blittable element type that defines the units of a suballocation.</typeparam>
+/// <typeparam name="TTag">Tag type for each the segments.</typeparam>
 public interface ISegmentTracker<TSeg, TTag> where TSeg : unmanaged
 {
     /// <summary>Tells the tracker to process this segment allocation event.</summary>

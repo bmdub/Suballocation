@@ -1,6 +1,5 @@
 ﻿using Suballocation.Collections;
 using System.Buffers;
-using System.Collections;
 
 namespace Suballocation.Suballocators;
 
@@ -17,7 +16,7 @@ public unsafe class SequentialBlockSuballocator<TSeg> : SequentialBlockSuballoca
 /// A sequential-fit suballocator that returns the nearest free next segment that is large enough to fulfill the request.
 /// </summary>
 /// <typeparam name="TSeg">A blittable element type that defines the units to allocate.</typeparam>
-/// <typeparam name="TTag">Type to be tied to each segment, as a separate entity from the segment contents. Use 'EmptyStruct' if none is desired.</typeparam>
+/// <typeparam name="TTag">Type to be tied to each segment, as a separate entity from the segment contents.</typeparam>
 public unsafe class SequentialBlockSuballocator<TSeg, TTag> : ISuballocator<TSeg, TTag>, IDisposable where TSeg : unmanaged
 {
     private readonly TSeg* _pElems;
@@ -194,7 +193,7 @@ public unsafe class SequentialBlockSuballocator<TSeg, TTag> : ISuballocator<TSeg
 
             if (blockIndex == _lastIndex)
             {
-                // Looped around to initial index position
+                // Looped around to initial index position; we found no available segment of the requested size.
                 break;
             }
         }

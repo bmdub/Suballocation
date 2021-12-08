@@ -4,10 +4,10 @@ using System.Collections;
 namespace Suballocation.Trackers;
 
 /// <summary>
-/// Collection that contains a list of update windows, indicating which parts of a suballocator's buffer were updated.
+/// Collection that provides update 'windows', summarizing which parts of a suballocator's buffer were updated.
 /// </summary>
-/// <typeparam name="TSeg">A blittable element type that defines the units to allocate.</typeparam>
-/// <typeparam name="TTag">An item type to map to each segment, for later retrieval.</typeparam>
+/// <typeparam name="TSeg">A blittable element type that defines the units of a suballocation.</typeparam>
+/// <typeparam name="TTag">Tag type for each the segments.</typeparam>
 public class UpdateWindows<TSeg, TTag> : IEnumerable<NativeMemorySegment<TSeg, TTag>> where TSeg : unmanaged
 {
     private IReadOnlyList<NativeMemorySegment<TSeg, TTag>> _windows;

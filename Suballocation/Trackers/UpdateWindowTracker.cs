@@ -8,10 +8,9 @@ public class UpdateWindowTracker<TSeg> : UpdateWindowTracker<TSeg, EmptyStruct> 
 
 /// <summary>
 /// Provides the ability to track rented memory segments from a suballocator. Specifically, the portions of the buffer that were allocated or updated.
-/// Also can combine update windows automatically based on a configurable distance threshold.
 /// </summary>
-/// <typeparam name="TSeg">A blittable element type that defines the units to allocate.</typeparam>
-/// <typeparam name="TTag">Type to be tied to each segment, as a separate entity from the segment contents. Use 'EmptyStruct' if none is desired.</typeparam>
+/// <typeparam name="TSeg">A blittable element type that defines the units of a suballocation.</typeparam>
+/// <typeparam name="TTag">Tag type for each the segments.</typeparam>
 public class UpdateWindowTracker<TSeg, TTag> : ISegmentTracker<TSeg, TTag> where TSeg : unmanaged
 {
     private static readonly Comparer<NativeMemorySegment<TSeg, TTag>> _segmentComparer;
@@ -24,13 +23,14 @@ public class UpdateWindowTracker<TSeg, TTag> : ISegmentTracker<TSeg, TTag> where
     }
 
     /// <summary></summary>
-    /// <param name="minimumFillPercentage">A threshold between 0 and 1. If any two update windows have a "used" to "combined length" ratio above this, then they will be combined.</param>
+    /// <param name="minimumFillPercentage">A threshold between 0 and 1 that defines when to combine update windows for efficiency. 
+    /// If any two update windows have a "used" to "combined length" ratio above this, then they will be combined into 1 update window.</param>
     public UpdateWindowTracker(double minimumFillPercentage)
     {
         _minimumFillPercentage = minimumFillPercentage;
     }
 
-    /// <summary>A threshold between 0 and 1. If any two update windows have a "used" to "combined length" ratio above this, then they will be combined.</summary>
+    /// <summary>A threshold between 0 and 1. If any two update windows have a "used" to "combined length" ratio above this, then they will be combined into 1 update window.</summary>
     public double MinimumFillPercentage => _minimumFillPercentage;
 
     public void TrackRental(NativeMemorySegment<TSeg, TTag> segment)
@@ -45,6 +45,7 @@ public class UpdateWindowTracker<TSeg, TTag> : ISegmentTracker<TSeg, TTag> where
 
     public unsafe void TrackReturn(NativeMemorySegment<TSeg, TTag> segment)
     {
+        // Use a null buffer pointer to indicate down the road that this update was a removal.
         _segments.Add(new NativeMemorySegment<TSeg, TTag>(null, segment.PSegment, segment.Length, segment.Tag));
     }
 
@@ -58,7 +59,7 @@ public class UpdateWindowTracker<TSeg, TTag> : ISegmentTracker<TSeg, TTag> where
     /// <returns></returns>
     public unsafe UpdateWindows<TSeg, TTag> BuildUpdateWindows()
     {
-        // Sort segments by offset.
+        // Sort segments by offset, see where we can combine them, and return them.
         _segments.Sort(_segmentComparer);
 
         List<NativeMemorySegment<TSeg, TTag>> finalWindows = new List<NativeMemorySegment<TSeg, TTag>>(_segments.Count);
@@ -68,9 +69,9 @@ public class UpdateWindowTracker<TSeg, TTag> : ISegmentTracker<TSeg, TTag> where
         {
             if (window.PBuffer == null)
             {
+                // Remove the previous matching segment, if the subsequent segment is a removal of the same segment.
                 if (finalWindows.Count > 0 && finalWindows[^1].PSegment == window.PSegment && finalWindows[^1].Length == window.Length)
                 {
-                    // Remove the previous matching segment, since this is a 'remove' operation.
                     bytesFilled -= finalWindows[^1].LengthBytes;
 
                     finalWindows.RemoveAt(finalWindows.Count - 1);
@@ -78,7 +79,7 @@ public class UpdateWindowTracker<TSeg, TTag> : ISegmentTracker<TSeg, TTag> where
             }
             else if (finalWindows.Count > 0 && CanCombine(finalWindows[^1].PSegment, bytesFilled, window.PSegment, window.LengthBytes))
             {
-                // Combine the segment with the current update window.
+                // We can combine the segment with the latest update window.
                 finalWindows[^1] = new NativeMemorySegment<TSeg, TTag>()
                 {
                     PSegment = finalWindows[^1].PSegment,

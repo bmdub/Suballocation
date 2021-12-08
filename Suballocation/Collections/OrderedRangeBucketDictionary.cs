@@ -17,7 +17,7 @@ public partial class OrderedRangeBucketDictionary<T> : IEnumerable<T> where T : 
     /// <summary></summary>
     /// <param name="offsetMin">The minimum key value to allow in the collection. The key range dictates the size of a backing array; thus a smaller range is better.</param>
     /// <param name="offsetMax">The maximum key value to allow in the collection, inclusive. The key range dictates the size of a backing array; thus a smaller range is better.</param>
-    /// <param name="bucketLength">The key-range length that each backing bucket is intended to manage. Smaller buckets may improve ordered-lookup performance for non-sparse elements at the cost of GC overhead and memory.</param>
+    /// <param name="bucketLength">The length of the buckets in which this collection is divided into. In general, smaller buckets = faster ordered range searches; larger buckets = Faster addition/removal, less memory overhead and possibly more ideal bucket statistics.</param>
     public OrderedRangeBucketDictionary(long offsetMin, long offsetMax, long bucketLength)
     {
         _offsetMin = offsetMin;

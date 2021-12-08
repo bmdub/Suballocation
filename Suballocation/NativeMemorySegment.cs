@@ -4,7 +4,7 @@ using Suballocation.Suballocators;
 namespace Suballocation;
 
 /// <summary>
-/// Lightweight structure that represents a segment of unmanaged memory allocated from a suballocator.
+/// Mostly-lightweight structure that describes a segment of unmanaged memory allocated from a suballocator.
 /// Note that this class is unsafe, and most forms of validation are intentionally omitted. Use at your own risk.
 /// </summary>
 [DebuggerDisplay("[0x{(ulong)_segmentPtr}] Length: {_length}, Value: {this[0]}")]

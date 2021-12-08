@@ -15,7 +15,7 @@ public partial class OrderedRangeBucketDictionary<T>
 
         /// <summary></summary>
         /// <param name="minOffset">The minimum offset of the range that this bucket handles.</param>
-        /// <param name="size">The length of the key range that this bucket handles.</param>
+        /// <param name="size">The length of the range that this bucket handles.</param>
         public Bucket(long minOffset, long size)
         {
             _dict = new Dictionary<long, T>();
@@ -122,7 +122,7 @@ public partial class OrderedRangeBucketDictionary<T>
 
         IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
-        /// <summary>Returns all of the elements whose key belongs in this bucket range.</summary>
+        /// <summary>Returns all of the entries whose offset begins within this bucket range.</summary>
         public IEnumerable<T> GetOriginatingRanges()
         {
             var minOffset = _minOffset;

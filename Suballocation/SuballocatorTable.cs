@@ -4,8 +4,8 @@ using System.Collections.Concurrent;
 namespace Suballocation
 {
     /// <summary>
-    /// Collection used to match up allocated segments with their corresponding suballocator, by ID.
-    /// The purpose is to minimize size and avoid any GC overhead otherwise caused by references to instances.
+    /// Collection used to match up allocated segments with their corresponding suballocator.
+    /// The purpose is to minimize size and avoid any GC overhead otherwise caused by references to suballocator instances.
     /// This smells a bit, but I haven't found a better solution.
     /// </summary>
     /// <typeparam name="TSeg">A blittable element type that defines the units to allocate.</typeparam>
@@ -14,26 +14,25 @@ namespace Suballocation
     {
         private static ConcurrentDictionary<IntPtr, ISuballocator<TSeg, TTag>> _suballocatorsById = new();
 
-        /// <summary>Registers a suballocator such that it is accessible by an ID from allocated segments.</summary>
+        /// <summary>Registers a suballocator such that it is accessible from allocated segments.</summary>
         /// <param name="suballocator">The suballocator to register.</param>
-        /// <returns>The ID which can be used to reference the given suballocator.</returns>
         public static unsafe void Register(ISuballocator<TSeg, TTag> suballocator)
         {
             if(suballocator.PElems == null)
             {
-                throw new ArgumentException($"Suballocator must have an allocated buffer pointer.");
+                throw new InvalidOperationException($"Suballocator must have an allocated buffer pointer.");
             }
 
             var ptr = (IntPtr)suballocator.PElems;
 
             if (_suballocatorsById.TryAdd(ptr, suballocator) == false)
             {
-                throw new ArgumentException($"A suballocator with the given buffer location has already been registered.");
+                throw new ArgumentException($"A suballocator with the given buffer location has already been registered, and has not beeen disposed.");
             }
         }
 
         /// <summary>Removes the suballocator with the given ID from the collection.</summary>
-        /// <param name="id">The ID associated with the suballocator.</param>
+        /// <param name="suballocator">The suballocator to deregister.</param>
         public static unsafe void Deregister(ISuballocator<TSeg, TTag> suballocator)
         {
             var ptr = (IntPtr)suballocator.PElems;

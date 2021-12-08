@@ -1,6 +1,5 @@
 ﻿using Suballocation.Collections;
 using System.Buffers;
-using System.Collections;
 using System.Numerics;
 
 namespace Suballocation.Suballocators;
@@ -32,10 +31,10 @@ public unsafe class BuddySuballocator<TSeg> : BuddySuballocator<TSeg, EmptyStruc
 }
 
 /// <summary>
-/// Provides a Buddy System / Buddy Allocator function on top of a large/fixed native buffer.
+/// Provides a Buddy Allocator on top of a fixed native buffer.
 /// </summary>
 /// <typeparam name="TSeg">A blittable element type that defines the units to allocate.</typeparam>
-/// <typeparam name="TTag">Type to be tied to each segment, as a separate entity from the segment contents. Use 'EmptyStruct' if none is desired.</typeparam>
+/// <typeparam name="TTag">Type to be tied to each segment, as a separate entity from the segment contents.</typeparam>
 public unsafe class BuddySuballocator<TSeg, TTag> : ISuballocator<TSeg, TTag>, IDisposable where TSeg : unmanaged
 {
     public long MinBlockLength;
@@ -48,6 +47,8 @@ public unsafe class BuddySuballocator<TSeg, TTag> : ISuballocator<TSeg, TTag>, I
     private long _freeBlockIndexesFlags;
     private long[] _freeBlockIndexesStart = null!;
     private bool _disposed;
+    private delegate bool TryReturnDelegate(NativeMemorySegment<TSeg, TTag> segment);
+    private TryReturnDelegate _tryReturnDelegate;
 
     /// <summary>Creates a BuddyAllocator instance and allocates a buffer of the specified length.</summary>
     /// <param name="length">Element length of the buffer to allocate.</param>
@@ -184,7 +185,6 @@ public unsafe class BuddySuballocator<TSeg, TTag> : ISuballocator<TSeg, TTag>, I
 
         // The free block index flags is a bit field where each index corresponds to the Log2 of the blockCount.
         // Therefore we can use it to quickly find the smallest index/size that will accomodate this block size.
-
         int minFreeBlockIndex = BitOperations.Log2((ulong)blockCount);
 
         long mask = ~(blockCount - 1);
@@ -198,7 +198,7 @@ public unsafe class BuddySuballocator<TSeg, TTag> : ISuballocator<TSeg, TTag>, I
             return false;
         }
 
-        // We know there are free block(s) at a certain length. Grab the first one we find in the chain.
+        // We know there are free block(s) at a certain length. Grab the smallest/first one we find in the chain.
         int freeBlockIndex = BitOperations.TrailingZeroCount((ulong)matchingBlockLengths);
 
         long freeBlockIndexIndex = _freeBlockIndexesStart[freeBlockIndex];
