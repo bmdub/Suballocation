@@ -8,8 +8,11 @@ namespace Suballocation;
 /// </summary>
 public interface ISegment : IDisposable
 {
+    /// <summary>Pointer to the start of the buffer that contains this segment.</summary>
+    unsafe void* PBufferBytes { get; }
+
     /// <summary>Pointer to the start of the pinned segment in unmanaged memory.</summary>
-    unsafe void* PBytes { get; }
+    unsafe void* PSegmentBytes { get; }
 
     /// <summary>The total size of segment.</summary>
     long LengthBytes { get; }

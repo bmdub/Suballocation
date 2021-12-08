@@ -8,17 +8,29 @@ namespace Suballocation.NUnit
 {
     public class OrderedRangeBucketDictionaryTests
     {
+        private class Range : IRangedEntry
+        {
+            public long RangeOffset { get; init; }
+            public long RangeLength { get; init; }
+
+            public Range(long rangeOffset, long rangeLength)
+            {
+                RangeOffset = rangeOffset;
+                RangeLength = rangeLength;
+            }
+        }
+
         [Test]
         public void FillTest()
         {
-            var dict = new OrderedRangeBucketDictionary<int>(1000, 10000, 16);
+            var dict = new OrderedRangeBucketDictionary<Range>(1000, 10000, 16);
 
             int c = 0;
-            for (int i = 1000; i < 10000; )
+            for (int i = 1000; i < 10000;)
             {
                 int len = Random.Shared.Next(1, 51);
 
-                bool success = dict.TryAdd(i, len, i + 1);
+                bool success = dict.TryAdd(new Range(i, len));
 
                 Assert.IsTrue(success);
 
@@ -32,7 +44,7 @@ namespace Suballocation.NUnit
         [Test]
         public void RemoveTest()
         {
-            var dict = new OrderedRangeBucketDictionary<int>(1000, 10000, 32);
+            var dict = new OrderedRangeBucketDictionary<Range>(1000, 10000, 32);
 
             List<int> lengths = new List<int>();
 
@@ -40,7 +52,7 @@ namespace Suballocation.NUnit
             {
                 int len = Random.Shared.Next(1, 51);
 
-                bool success = dict.TryAdd(i, len, i + 1);
+                bool success = dict.TryAdd(new Range(i, len));
 
                 Assert.IsTrue(success);
 
@@ -49,13 +61,12 @@ namespace Suballocation.NUnit
             }
 
             int index = 1000;
-            foreach(int len in lengths)
+            foreach (int len in lengths)
             {
                 bool success = dict.Remove(index, out var entry);
 
                 Assert.IsTrue(success);
-                Assert.AreEqual(index, entry.Key);
-                Assert.AreEqual(index + 1, entry.Value);
+                Assert.AreEqual(index, entry.RangeOffset);
 
                 index += len;
             }
@@ -66,74 +77,74 @@ namespace Suballocation.NUnit
         [Test]
         public void BoundaryTest()
         {
-            var dict = new OrderedRangeBucketDictionary<int>(1000, 10000, 1);
+            var dict = new OrderedRangeBucketDictionary<Range>(1000, 10000, 1);
 
-            Assert.Throws<ArgumentOutOfRangeException>(() => dict.TryAdd(-1, 1, 2000));
+            Assert.Throws<ArgumentOutOfRangeException>(() => dict.TryAdd(new Range(-1, 1)));
 
-            Assert.Throws<ArgumentOutOfRangeException>(() => dict.TryAdd(999, 1, 2000));
+            Assert.Throws<ArgumentOutOfRangeException>(() => dict.TryAdd(new Range(999, 1)));
 
-            Assert.Throws<ArgumentOutOfRangeException>(() => dict.TryAdd(10001, 1, 2000));
+            Assert.Throws<ArgumentOutOfRangeException>(() => dict.TryAdd(new Range(10001, 1)));
 
-            var success = dict.TryAdd(1000, 1, 2000);
+            var success = dict.TryAdd(new Range(1000, 1));
             Assert.IsTrue(success);
 
-            success = dict.TryAdd(10000, 1, 2000);
+            success = dict.TryAdd(new Range(10000, 1));
             Assert.IsTrue(success);
         }
 
         [Test]
         public void DuplicateAddRemoveTest()
         {
-            var dict = new OrderedRangeBucketDictionary<int>(1000, 10000, 32);
+            var dict = new OrderedRangeBucketDictionary<Range>(1000, 10000, 32);
 
-            var success = dict.TryAdd(3000, 1, 2000);
+            var success = dict.TryAdd(new Range(3000, 1));
             Assert.IsTrue(success);
 
-            success = dict.TryAdd(3000, 1, 2000);
+            success = dict.TryAdd(new Range(3000, 1));
             Assert.IsFalse(success);
 
             success = dict.Remove(3000, out _);
             Assert.IsTrue(success);
 
-            success = dict.TryAdd(3000, 1, 2000);
+            success = dict.TryAdd(new Range(3000, 1));
             Assert.IsTrue(success);
         }
 
         [Test]
         public void GetSetTest()
         {
-            var dict = new OrderedRangeBucketDictionary<int>(1000, 10000, 32);
+            var dict = new OrderedRangeBucketDictionary<Range>(1000, 10000, 32);
 
             for (int i = 1000; i < 10000; i++)
             {
-                bool success = dict.TryAdd(i, 1, i + 1);
+                bool success = dict.TryAdd(new Range(i, 1));
                 Assert.IsTrue(success);
 
                 success = dict.TryGetValue(i, out var entry);
                 Assert.IsTrue(success);
-                Assert.AreEqual(i + 1, entry.Value);
+                Assert.AreEqual(i, entry.RangeOffset);
                 entry = dict[i];
-                Assert.AreEqual(i + 1, entry.Value);
+                Assert.AreEqual(i, entry.RangeOffset);
             }
 
             for (int i = 1000; i < 10000; i++)
             {
-                dict[i] = new OrderedRangeBucketDictionary<int>.RangeEntry(i, 1, i + 2);
+                dict[i] = new Range(i, 1);
 
                 bool success = dict.TryGetValue(i, out var entry);
                 Assert.IsTrue(success);
-                Assert.AreEqual(i + 2, entry.Value);
+                Assert.AreEqual(i, entry.RangeOffset);
             }
         }
 
         [Test]
         public void GetNearestTest()
         {
-            var dict = new OrderedRangeBucketDictionary<int>(1000, 10000, 32);
+            var dict = new OrderedRangeBucketDictionary<Range>(1000, 10000, 32);
 
             for (int i = 1000; i < 10000; i++)
             {
-                dict.Add(i, 1, i + 1);
+                dict.Add(new Range(i, 1));
             }
 
             int count = 0;
@@ -141,7 +152,7 @@ namespace Suballocation.NUnit
             foreach (var kvp in dict.GetNearest(5500))
             {
                 count++;
-                var distance = Math.Abs(5500 - kvp.Key);
+                var distance = Math.Abs(5500 - kvp.RangeOffset);
 
                 Assert.GreaterOrEqual(distance, lastDistance);
                 lastDistance = distance;
@@ -153,11 +164,11 @@ namespace Suballocation.NUnit
         [Test]
         public void GetRangeTest()
         {
-            var dict = new OrderedRangeBucketDictionary<int>(1000, 10000, 1);
+            var dict = new OrderedRangeBucketDictionary<Range>(1000, 10000, 1);
 
             for (int i = 1000; i < 10000; i++)
             {
-                dict.Add(i, 1, i + 1);
+                dict.Add(new Range(i, 1));
             }
 
             int count = 0;
@@ -166,8 +177,8 @@ namespace Suballocation.NUnit
             {
                 count++;
 
-                Assert.GreaterOrEqual(kvp.Key, lastKey);
-                lastKey = kvp.Key;
+                Assert.GreaterOrEqual(kvp.RangeOffset, lastKey);
+                lastKey = kvp.RangeOffset;
             }
 
             Assert.AreEqual(1001, count);
@@ -176,14 +187,14 @@ namespace Suballocation.NUnit
         [Test]
         public void EnumerateTest()
         {
-            var dict = new OrderedRangeBucketDictionary<int>(1000, 10000, 32);
+            var dict = new OrderedRangeBucketDictionary<Range>(1000, 10000, 32);
 
             int c = 0;
             for (int i = 1000; i < 10000;)
             {
                 int len = Random.Shared.Next(1, 51);
 
-                bool success = dict.TryAdd(i, len, i + 1);
+                bool success = dict.TryAdd(new Range(i, len));
 
                 Assert.IsTrue(success);
 
@@ -197,8 +208,8 @@ namespace Suballocation.NUnit
             {
                 count++;
 
-                Assert.GreaterOrEqual(kvp.Key, lastKey);
-                lastKey = kvp.Key;
+                Assert.GreaterOrEqual(kvp.RangeOffset, lastKey);
+                lastKey = kvp.RangeOffset;
             }
 
             Assert.AreEqual(c, count);
@@ -207,16 +218,16 @@ namespace Suballocation.NUnit
         [Test]
         public void BucketsTest()
         {
-            var dict = new OrderedRangeBucketDictionary<int>(1000, 9999, 4);
+            var dict = new OrderedRangeBucketDictionary<Range>(1000, 9999, 4);
 
-            for (int i = 1000; i < 10000; i+=2)
+            for (int i = 1000; i < 10000; i += 2)
             {
-                bool success = dict.TryAdd(i, 2, i + 1);
+                bool success = dict.TryAdd(new Range(i, 2));
 
                 Assert.IsTrue(success);
             }
 
-            foreach(var bucket in dict.GetBuckets())
+            foreach (var bucket in dict.GetBuckets())
             {
                 Assert.AreEqual(1.0, bucket.FillPct);
             }
@@ -231,11 +242,11 @@ namespace Suballocation.NUnit
         [Test]
         public void ClearTest()
         {
-            var dict = new OrderedRangeBucketDictionary<int>(1000, 10000, 32);
+            var dict = new OrderedRangeBucketDictionary<Range>(1000, 10000, 32);
 
             for (int i = 1000; i < 10000; i++)
             {
-                dict.Add(i, 1, i + 1);
+                dict.Add(new Range(i, 1));
             }
 
             dict.Clear();

@@ -6,14 +6,15 @@ namespace Suballocation.Trackers;
 /// <summary>
 /// Collection that contains a list of update windows, indicating which parts of a suballocator's buffer were updated.
 /// </summary>
-/// <typeparam name="T"></typeparam>
-public class UpdateWindows<T> : IEnumerable<NativeMemorySegment<T>> where T : unmanaged
+/// <typeparam name="TSeg">A blittable element type that defines the units to allocate.</typeparam>
+/// <typeparam name="TTag">An item type to map to each segment, for later retrieval.</typeparam>
+public class UpdateWindows<TSeg, TTag> : IEnumerable<NativeMemorySegment<TSeg, TTag>> where TSeg : unmanaged
 {
-    private IReadOnlyList<NativeMemorySegment<T>> _windows;
+    private IReadOnlyList<NativeMemorySegment<TSeg, TTag>> _windows;
 
     /// <summary></summary>
     /// <param name="windows">A list of segments that represent updated windows of a buffer.</param>
-    public unsafe UpdateWindows(List<NativeMemorySegment<T>> windows)
+    public unsafe UpdateWindows(List<NativeMemorySegment<TSeg, TTag>> windows)
     {
         _windows = windows;
 
@@ -22,7 +23,7 @@ public class UpdateWindows<T> : IEnumerable<NativeMemorySegment<T>> where T : un
             return;
         }
 
-        SpreadLength = (windows[^1].PElems + windows[^1].Length) - windows[0].PElems;
+        SpreadLength = (windows[^1].PSegment + windows[^1].Length) - windows[0].PSegment;
 
         foreach (var window in windows)
         {
@@ -34,22 +35,22 @@ public class UpdateWindows<T> : IEnumerable<NativeMemorySegment<T>> where T : un
     public long SpreadLength { get; init; }
 
     /// <summary>The byte length from the beginning of the lowest-addressed update window to the end of the highest-address update window.</summary>
-    public long SpreadSize => SpreadLength * Unsafe.SizeOf<T>();
+    public long SpreadSize => SpreadLength * Unsafe.SizeOf<TSeg>();
 
     /// <summary>The unit sum of the lengths of all update windows.</summary>
     public long TotalLength { get; init; }
 
     /// <summary>The sum of the byte lengths of all update windows.</summary>
-    public long TotalSize => TotalLength * Unsafe.SizeOf<T>();
+    public long TotalSize => TotalLength * Unsafe.SizeOf<TSeg>();
 
     /// <summary>The count of update windows.</summary>
     public long Count { get => _windows.Count; }
 
     /// <summary>Gets the update window at the ith position.</summary>
-    public NativeMemorySegment<T> this[int index] => _windows[index];
+    public NativeMemorySegment<TSeg, TTag> this[int index] => _windows[index];
 
     /// <summary>Gets an enumerator over the update windows.</summary>
-    public IEnumerator<NativeMemorySegment<T>> GetEnumerator() => _windows.Cast<NativeMemorySegment<T>>().GetEnumerator();
+    public IEnumerator<NativeMemorySegment<TSeg, TTag>> GetEnumerator() => _windows.Cast<NativeMemorySegment<TSeg, TTag>>().GetEnumerator();
 
-    IEnumerator IEnumerable.GetEnumerator() => _windows.Cast<NativeMemorySegment<T>>().GetEnumerator();
+    IEnumerator IEnumerable.GetEnumerator() => _windows.Cast<NativeMemorySegment<TSeg, TTag>>().GetEnumerator();
 }

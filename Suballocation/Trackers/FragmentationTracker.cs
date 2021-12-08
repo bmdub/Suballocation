@@ -2,109 +2,77 @@
 
 namespace Suballocation.Trackers;
 
+public unsafe class FragmentationTracker<TSeg> : FragmentationTracker<TSeg, EmptyStruct> where TSeg : unmanaged
+{
+    public FragmentationTracker(long length, long bucketLength) : base(length, bucketLength) { }
+}
+
 /// <summary>
 /// Provides the ability to approximately track fragmented segments in a buffer.
 /// </summary>
-/// <typeparam name="TTag">An item type to map to each segment, for later retrieval.</typeparam>
-public unsafe class FragmentationTracker<TBuffer, TTag> where TBuffer : unmanaged
-{
-    private readonly TBuffer* _pBuffer;
-    private readonly OrderedRangeBucketDictionary<TTag> _dict;
+/// <typeparam name="TSeg">A blittable element type that defines the units to allocate.</typeparam>
+/// <typeparam name="TTag">Type to be tied to each segment, as a separate entity from the segment contents. Use 'EmptyStruct' if none is desired.</typeparam>
+public class FragmentationTracker<TSeg, TTag> where TSeg : unmanaged
+{ 
+    private readonly OrderedRangeBucketDictionary<NativeMemorySegment<TSeg, TTag>> _dict;
 
     /// <summary></summary>
-    /// <param name="pBuffer">The address of the unmanaged buffer that you are tracking segments for.</param>
     /// <param name="length">The unit length of the unmanaged buffer that you are tracking segments for.</param>
     /// <param name="bucketLength">The unit length that each backing bucket is intended to manage. Smaller buckets may improve ordered-lookup performance for non-sparse elements at the cost of GC overhead and memory.</param>
-    public unsafe FragmentationTracker(TBuffer* pBuffer, long length, long bucketLength)
+    public FragmentationTracker(long length, long bucketLength)
     {
-        _pBuffer = pBuffer;
-        _dict = new OrderedRangeBucketDictionary<TTag>(0, length - 1, bucketLength);
+        _dict = new OrderedRangeBucketDictionary<NativeMemorySegment<TSeg, TTag>>(0, length - 1, bucketLength);
     }
 
     /// <summary>Tells the tracker to note this newly-rented segment.</summary>
     /// <param name="segment">The added memory segment.</param>
     /// <param name="tag">An item to associate with this segment, for later retrieval.</param>
-    public unsafe void TrackAddition(NativeMemorySegment<TBuffer> segment, TTag tag)
+    public void TrackAddition(NativeMemorySegment<TSeg, TTag> segment)
     {
-        _dict.Add(segment.PElems - _pBuffer, segment.Length, tag);
+        _dict.Add(segment);
     }
 
     /// <summary>Tells the tracker to note this added/updated segment.</summary>
     /// <param name="segment">The new/updated memory segment.</param>
     /// <param name="tag">An item to associate with this segment, for later retrieval.</param>
-    public unsafe void TrackAdditionOrUpdate(NativeMemorySegment<TBuffer> segment, TTag tag)
+    public void TrackAdditionOrUpdate(NativeMemorySegment<TSeg, TTag> segment)
     {
-        long index = segment.PElems - _pBuffer;
-
-        _dict[index] = new OrderedRangeBucketDictionary<TTag>.RangeEntry(index, segment.Length, tag);
+        _dict[segment.RangeOffset] = segment;
     }
 
     /// <summary>Tells the tracker to note this newly-removed segment.</summary>
     /// <param name="segment">The memory segment that was removed from its buffer.</param>
-    public unsafe TTag TrackRemoval(NativeMemorySegment<TBuffer> segment)
+    public void TrackRemoval(NativeMemorySegment<TSeg, TTag> segment)
     {
-        if(_dict.Remove(segment.PElems - _pBuffer, out var tag) == false)
+        if (_dict.Remove(segment.RangeOffset, out _) == false)
         {
             throw new KeyNotFoundException();
         }
-
-        return tag.Value;
     }
 
-    /// <summary>Gets the tag associated with the given segment</summary>
-    /// <param name="segment">The memory segment that was removed from its buffer.</param>
-    /// <param name="value">The tag given to the segment, if found.</param>
+    /*/// <summary>Gets the segment with the given offset.</summary>
+    /// <param name="offset">The unit offset of the segment.</param>
+    /// <param name="segment">The segment, if found.</param>
     /// <returns>True if found.</returns>
-    public unsafe bool TryGetTag(NativeMemorySegment<TBuffer> segment, out TTag value)
+    public bool TryGetSegment(long offset, out NativeMemorySegment<TSeg, TTag> segment)
     {
-        if(_dict.TryGetValue(segment.PElems - _pBuffer, out var entry) == false)
-        {
-            value = default!;
-            return false;
-        }
+        return _dict.TryGetValue(offset, out segment);
+    }*/
 
-        value = entry.Value;
-        return true;
-    }
-
-    /// <summary>Searches the collection for segments that are fragmented, and returns their tags, unordered.</summary>
+    /// <summary>Searches the collection for segments that are fragmented, and returns them, unordered.</summary>
     /// <param name="minimumFragmentationPct">The fragmentation threshold at which segments are deemed fragmented.</param>
-    /// <returns>The tags associated with the segments that are found to be fragmented.</returns>
-    public IEnumerable<TTag> GetFragmentedSegments(double minimumFragmentationPct)
+    /// <returns>The segments that are found to be fragmented.</returns>
+    public IEnumerable<NativeMemorySegment<TSeg, TTag>> GetFragmentedSegments(double minimumFragmentationPct)
     {
-        var enm = _dict.GetBuckets().GetEnumerator();
-
-        if(enm.MoveNext() == false)
+        foreach(var bucket in _dict.GetBuckets())
         {
-            yield break;
-        }
-
-        var prevBucket = enm.Current;
-
-        while(enm.MoveNext())
-        {
-            if(enm.Current.FillPct > 0 &&
-                prevBucket.FillPct > 0 &&
-                1.0 - enm.Current.FillPct >= minimumFragmentationPct && 
-                1.0 - prevBucket.FillPct >= minimumFragmentationPct)
+            if (bucket.FillPct > 0 && 1.00001 - bucket.FillPct >= minimumFragmentationPct)
             {
-                foreach (var entry in prevBucket.GetOriginatingRanges())
+                foreach (var entry in bucket.GetOriginatingRanges())
                 {
-                    yield return entry.Value;
-                }
-
-                foreach (var entry in enm.Current.GetOriginatingRanges())
-                {
-                    yield return entry.Value;
-                }
-
-                if(enm.MoveNext() == false)
-                {
-                    yield break;
+                    yield return entry;
                 }
             }
-
-            prevBucket = enm.Current;
         }
     }
 

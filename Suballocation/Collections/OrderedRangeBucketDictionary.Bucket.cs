@@ -6,20 +6,20 @@ public partial class OrderedRangeBucketDictionary<T>
     /// <summary>
     /// Structure used for storing a locally-similar portion of elements.
     /// </summary>
-    public record struct Bucket : IEnumerable<RangeEntry>
+    public record struct Bucket : IEnumerable<T>
     {
-        private readonly Dictionary<long, BucketEntry> _dict;
-        private readonly long _minKey;
+        private readonly Dictionary<long, T> _dict;
+        private readonly long _minOffset;
         private readonly long _size;
         private long _fill;
 
         /// <summary></summary>
-        /// <param name="minKey">The minimum key of the key range that this bucket handles.</param>
+        /// <param name="minOffset">The minimum offset of the range that this bucket handles.</param>
         /// <param name="size">The length of the key range that this bucket handles.</param>
-        public Bucket(long minKey, long size)
+        public Bucket(long minOffset, long size)
         {
-            _dict = new Dictionary<long, BucketEntry>();
-            _minKey = minKey;
+            _dict = new Dictionary<long, T>();
+            _minOffset = minOffset;
             _size = size;
             _fill = 0;
         }
@@ -27,58 +27,51 @@ public partial class OrderedRangeBucketDictionary<T>
         /// <summary>Returns the sum of the elements and their ranges currently in this bucket.</summary>
         public long Fill { get => _fill; init => _fill = value; }
 
-        /// <summary>Returns the sum of the elements and their ranges currently in this bucket, as a percentage of the key range.</summary>
+        /// <summary>Returns the sum of the elements and their ranges currently in this bucket, as a percentage of the range.</summary>
         public double FillPct => _fill / (double)_size;
 
         /// <summary>Returns the count of the elements in this bucket.</summary>
         public long Count => _dict.Count;
 
-        /// <summary>Gets or sets an entry associated with the given key.</summary>
-        /// <param name="key">The key for the element.</param>
-        /// <returns>The range entry associated with the given key.</returns>
+        /// <summary>Gets or sets an entry associated with the given starting offset.</summary>
+        /// <param name="offset">The offset of the entry.</param>
+        /// <returns>The range entry associated with the given offset.</returns>
         /// <exception cref="KeyNotFoundException"></exception>
-        public RangeEntry this[long key]
+        public T this[long offset]
         {
             get
             {
-                if (TryGetValue(key, out var entry) == false)
+                if (TryGetValue(offset, out var entry) == false)
                 {
-                    throw new KeyNotFoundException($"Key not found.");
+                    throw new KeyNotFoundException($"Range not found.");
                 }
 
                 return entry;
             }
             set
             {
-                Remove(key, out _);
-                TryAdd(value);
+                Remove(offset, out _);
+                Add(value);
             }
         }
 
         /// <summary>Attempts to retrieve an entry from the bucket.</summary>
-        /// <param name="key">The key of the desired element.</param>
-        /// <param name="entry">The entry associated with the given key, if found.</param>
+        /// <param name="offset">The offset of the entry.</param>
+        /// <param name="entry">The entry associated with the given range offset, if found.</param>
         /// <returns>True if found.</returns>
-        public bool TryGetValue(long key, out RangeEntry entry)
+        public bool TryGetValue(long offset, out T entry)
         {
-            if (_dict.TryGetValue(key, out var bucketEntry) == true)
-            {
-                entry = new RangeEntry() { Key = key, Length = bucketEntry.Length, Value = bucketEntry.Value };
-                return true;
-            }
-
-            entry = default;
-            return false;
+            return _dict.TryGetValue(offset, out entry!);
         }
 
-        /// <summary>Returns whether or not there exists an element with the given key.</summary>
-        /// <param name="key">The key of the desired element.</param>
+        /// <summary>Returns whether or not there exists an entry with the given offset.</summary>
+        /// <param name="offset">The offset of the entry.</param>
         /// <returns>True if found.</returns>
-        public bool ContainsKey(long key) => _dict.ContainsKey(key);
+        public bool ContainsKey(long offset) => _dict.ContainsKey(offset);
 
-        /// <summary>Adds a new element to the bucket, if no other element with the range's key exists.</summary>
-        /// <param name="entry">The range definition of the element.</param>
-        public void Add(RangeEntry entry)
+        /// <summary>Adds a new entry to the bucket, if no other entry with the range's offset exists.</summary>
+        /// <param name="entry">The entry to add.</param>
+        public void Add(T entry)
         {
             if (TryAdd(entry) == false)
             {
@@ -86,40 +79,34 @@ public partial class OrderedRangeBucketDictionary<T>
             }
         }
 
-        /// <summary>Adds a new element to the bucket, if no other element with the range's key exists.</summary>
-        /// <param name="entry">The range definition of the element.</param>
+        /// <summary>Adds a new entry to the bucket, if no other entry with the range's offset exists.</summary>
+        /// <param name="entry">The entry to add.</param>
         /// <returns>True if successful.</returns>
-        public bool TryAdd(RangeEntry entry)
+        public bool TryAdd(T entry)
         {
-            if (_dict.TryAdd(entry.Key, new BucketEntry() { Length = entry.Length, Value = entry.Value }))
+            if (_dict.TryAdd(entry.RangeOffset, entry))
             {
-                long rangeStart = Math.Max(_minKey, entry.Key);
-                long rangeEnd = Math.Min(_minKey + _size, entry.Key + entry.Length);
-                _fill += rangeEnd - rangeStart;
-
+                _fill += entry.RangeLength;
+                //Debug.WriteLine($"MinKey {_minKey}, {_fill}");
                 return true;
             }
 
             return false;
         }
 
-        /// <summary>Removes an element from the bucket.</summary>
-        /// <param name="key">The key of the element.</param>
+        /// <summary>Removes an entry from the bucket.</summary>
+        /// <param name="offset">The range offset of the entry.</param>
         /// <param name="entry">The entry that was removed, if found.</param>
         /// <returns>True if successful.</returns>
-        public bool Remove(long key, out RangeEntry entry)
+        public bool Remove(long offset, out T entry)
         {
-            if (_dict.Remove(key, out var bucketEntry))
+            if (_dict.Remove(offset, out entry!))
             {
-                long rangeStart = Math.Max(_minKey, key);
-                long rangeEnd = Math.Min(_minKey + _size, key + bucketEntry.Length);
-                _fill -= rangeEnd - rangeStart;
-
-                entry = new RangeEntry() { Key = key, Length = bucketEntry.Length, Value = bucketEntry.Value };
+                _fill -= entry.RangeLength;
                 return true;
             }
 
-            entry = default;
+            entry = default!;
             return false;
         }
 
@@ -131,30 +118,18 @@ public partial class OrderedRangeBucketDictionary<T>
         }
 
         /// <summary>Returns all of the elements in the bucket.</summary>
-        public IEnumerator<RangeEntry> GetEnumerator() =>
-            _dict
-            .Select(kvp => new RangeEntry() { Key = kvp.Key, Length = kvp.Value.Length, Value = kvp.Value.Value })
-            .GetEnumerator();
+        public IEnumerator<T> GetEnumerator() => _dict.Values.GetEnumerator();
 
         IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
         /// <summary>Returns all of the elements whose key belongs in this bucket range.</summary>
-        public IEnumerable<RangeEntry> GetOriginatingRanges()
+        public IEnumerable<T> GetOriginatingRanges()
         {
-            var minKey = _minKey;
+            var minOffset = _minOffset;
 
             return _dict
-                    .Where(kvp => kvp.Key >= minKey)
-                    .Select(kvp => new RangeEntry() { Key = kvp.Key, Length = kvp.Value.Length, Value = kvp.Value.Value });
-        }
-
-        private readonly record struct BucketEntry
-        {
-            private readonly long _length;
-            private readonly T _value;
-
-            public long Length { get => _length; init => _length = value; }
-            public T Value { get => _value; init => _value = value; }
+                    .Where(kvp => kvp.Key >= minOffset)
+                    .Select(kvp => kvp.Value);
         }
     }
 }

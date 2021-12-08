@@ -48,11 +48,11 @@ public partial class Program
         }
 
         // Run a test for each suballocator.
-        {
+        /*{
             string tag = "Random Short";
 
             var results =
-                GetSuballocators<SomeStruct>(length: 2048, blockLength: 1)
+                GetSuballocators<SomeStruct>(length: 2048, blockLength: 2)
                     .Select(suballocator =>
                         Benchmark.Run(
                             imageFolder: _imageFolder,
@@ -61,18 +61,16 @@ public partial class Program
                             suballocator: suballocator,
                             seed: 0,
                             imageWidth: _imageWidth, imageHeight: _imageHeight,
-                            totalLengthToRent: 32_000,
+                            totalLengthToRent: 64_000,
                             minSegmentLenInitial: 1, minSegmentLenFinal: 1,
                             maxSegmentLenInitial: 32 * 1, maxSegmentLenFinal: 2,
-                            desiredFillPercentage: .8,
+                            desiredFillPercentage: .9,
                             youthReturnFactor: .5,
                             updateWindowFillPercentage: .21,
-                            updatesPerWindow: 10,
+                            updatesPerWindow: 1,
+                            defragment: false,
                             fragmentBucketLength: 128))
                     .ToList();
-            //.Run(.50f, minSegLen, maxSegLen, updateWindowTracker, 10000)
-            //.Run(50_000_000_000, minSegLen, minSegLen, maxSegLen, maxSegLen, .55, .5, updateWindowTracker, 100)
-            //.Run(100_000_000, minSegLen, minSegLen, maxSegLen, maxSegLen, .15, .5, updateWindowTracker, 200)
 
             // Display results.
             results.ShowConsole(tag);
@@ -80,14 +78,14 @@ public partial class Program
             results.ShowPatternImages();
 
             Console.ReadKey();
-        }
+        }*/
 
         // Run a test for each suballocator.
         {
             string tag = "Random";
 
             var results =
-                GetSuballocators<SomeStruct>(length: 1L << 25, blockLength: 2)
+                GetSuballocators<SomeStruct>(length: 1L << 23, blockLength: 2)
                     .Select(suballocator =>
                         Benchmark.Run(
                             imageFolder: _imageFolder,
@@ -96,18 +94,16 @@ public partial class Program
                             suballocator: suballocator,
                             seed: 0,
                             imageWidth: _imageWidth, imageHeight: _imageHeight,
-                            totalLengthToRent: 320_000_000,
+                            totalLengthToRent: 33_000_000,
                             minSegmentLenInitial: 1, minSegmentLenFinal: 1,
                             maxSegmentLenInitial: 65536 * 1, maxSegmentLenFinal: 32,
-                            desiredFillPercentage: .8,
+                            desiredFillPercentage: .9,
                             youthReturnFactor: .5,
                             updateWindowFillPercentage: .21,
                             updatesPerWindow: 10,
-                            fragmentBucketLength: 128))
+                            defragment: false,
+                            fragmentBucketLength: 65536))
                     .ToList();
-            //.Run(.50f, minSegLen, maxSegLen, updateWindowTracker, 10000)
-            //.Run(50_000_000_000, minSegLen, minSegLen, maxSegLen, maxSegLen, .55, .5, updateWindowTracker, 100)
-            //.Run(100_000_000, minSegLen, minSegLen, maxSegLen, maxSegLen, .15, .5, updateWindowTracker, 200)
 
             // Display results.
             results.ShowConsole(tag);

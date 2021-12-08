@@ -5,24 +5,26 @@ namespace Suballocation.Collections;
 /// <summary>
 /// A dictionary for ranges that provides ordered lookups, and divides the collection into buckets that can later be analyzed.
 /// </summary>
-/// <typeparam name="T">The type of the element to store.</typeparam>
-public partial class OrderedRangeBucketDictionary<T> : IEnumerable<OrderedRangeBucketDictionary<T>.RangeEntry>
+/// <typeparam name="T">The element type, which must implement IRangedEntity.</typeparam>
+public partial class OrderedRangeBucketDictionary<T> : IEnumerable<T> where T : IRangedEntry
 {
-    private readonly long _keyMin;
-    private readonly long _keyMax;
+    private readonly long _bucketLength;
+    private readonly long _offsetMin;
+    private readonly long _offsetMax;
     private readonly long _keyRange;
     private readonly Bucket[] _buckets;
 
     /// <summary></summary>
-    /// <param name="keyMin">The minimum key value to allow in the collection. The key range dictates the size of a backing array; thus a smaller range is better.</param>
-    /// <param name="keyMax">The maximum key value to allow in the collection, inclusive. The key range dictates the size of a backing array; thus a smaller range is better.</param>
+    /// <param name="offsetMin">The minimum key value to allow in the collection. The key range dictates the size of a backing array; thus a smaller range is better.</param>
+    /// <param name="offsetMax">The maximum key value to allow in the collection, inclusive. The key range dictates the size of a backing array; thus a smaller range is better.</param>
     /// <param name="bucketLength">The key-range length that each backing bucket is intended to manage. Smaller buckets may improve ordered-lookup performance for non-sparse elements at the cost of GC overhead and memory.</param>
-    public OrderedRangeBucketDictionary(long keyMin, long keyMax, long bucketLength)
+    public OrderedRangeBucketDictionary(long offsetMin, long offsetMax, long bucketLength)
     {
-        _keyMin = keyMin;
-        _keyMax = keyMax;
+        _offsetMin = offsetMin;
+        _offsetMax = offsetMax;
+        _bucketLength = bucketLength;
 
-        _keyRange = keyMax - keyMin + 1;
+        _keyRange = offsetMax - offsetMin + 1;
 
         long bucketCount = _keyRange / bucketLength;
         if (bucketCount * bucketLength != _keyRange)
@@ -32,10 +34,10 @@ public partial class OrderedRangeBucketDictionary<T> : IEnumerable<OrderedRangeB
 
         _buckets = new Bucket[bucketCount];
 
-        long minKey = _keyMin;
+        long minKey = _offsetMin;
         for (int i = 0; i < _buckets.Length; i++)
         {
-            _buckets[i] = new Bucket(minKey, Math.Min(bucketLength, _keyMax - minKey + 1));
+            _buckets[i] = new Bucket(minKey, Math.Min(bucketLength, _offsetMax - minKey + 1));
             minKey += bucketLength;
         }
     }
@@ -43,12 +45,12 @@ public partial class OrderedRangeBucketDictionary<T> : IEnumerable<OrderedRangeB
     /// <summary>Returns the count of elements in the collection.</summary>
     public long Count { get; private set; }
 
-    /// <summary>Gets or sets an element in the collection.</summary>
-    /// <param name="key">The key of the subject element.</param>
+    /// <summary>Gets or sets an element in the collection, given the start of its range.</summary>
+    /// <param name="key">The entry's range offset.</param>
     /// <returns>The entry associated with the given key.</returns>
     /// <exception cref="ArgumentException"></exception>
     /// <exception cref="ArgumentOutOfRangeException"></exception>
-    public RangeEntry this[long key]
+    public T this[long key]
     {
         get
         {
@@ -68,34 +70,27 @@ public partial class OrderedRangeBucketDictionary<T> : IEnumerable<OrderedRangeB
     }
 
     /// <summary>Attempts to retrieve an entry from the collection.</summary>
-    /// <param name="key">The key of the desired element.</param>
+    /// <param name="offset">The offset of the entry.</param>
     /// <param name="entry">The entry associated with the given key.</param>
     /// <returns>True if found.</returns>
-    public bool TryGetValue(long key, out RangeEntry entry)
+    public bool TryGetValue(long offset, out T entry)
     {
-        if (key < _keyMin || key > _keyMax)
+        if (offset < _offsetMin || offset > _offsetMax)
         {
-            entry = default;
+            entry = default!;
             return false;
         }
 
-        int bucketIndex = (int)((key - _keyMin) * _buckets.Length / _keyRange);
+        int bucketIndex = (int)((offset - _offsetMin) / _bucketLength);
 
         ref Bucket bucket = ref _buckets[bucketIndex];
 
-        return bucket.TryGetValue(key, out entry);
+        return bucket.TryGetValue(offset, out entry);
     }
 
-    /// <summary>Adds a new element to the collection, if no other element with the range's key exists.</summary>
-    /// <param name="key">The key of the element.</param>
-    /// <param name="length">The length of the range associated with the element.</param>
-    /// <param name="value">The value to store.</param>
-    public void Add(long key, long length, T value) =>
-        Add(new RangeEntry(key, length, value));
-
-    /// <summary>Adds a new element to the collection, if no other element with the range's key exists.</summary>
-    /// <param name="entry">The range definition of the element.</param>
-    public void Add(RangeEntry entry)
+    /// <summary>Adds a new entry to the collection, if no other entry with the range's key exists.</summary>
+    /// <param name="entry">The entry to add.</param>
+    public void Add(T entry)
     {
         if (TryAdd(entry) == false)
         {
@@ -103,24 +98,16 @@ public partial class OrderedRangeBucketDictionary<T> : IEnumerable<OrderedRangeB
         }
     }
 
-    /// <summary>Adds a new element to the collection, if no other element with the range's key exists.</summary>
-    /// <param name="key">The key of the element.</param>
-    /// <param name="length">The length of the range associated with the element.</param>
-    /// <param name="value">The value to store.</param>
+    /// <summary>Adds a new entry to the collection, if no other entry with the range's key exists.</summary>
+    /// <param name="entry">The entry to add.</param>
     /// <returns>True if successful.</returns>
-    public bool TryAdd(long key, long length, T value) =>
-        TryAdd(new RangeEntry(key, length, value));
-
-    /// <summary>Adds a new element to the collection, if no other element with the range's key exists.</summary>
-    /// <param name="entry">The range definition of the element.</param>
-    /// <returns>True if successful.</returns>
-    public bool TryAdd(RangeEntry entry)
+    public bool TryAdd(T entry)
     {
-        if (entry.Key < _keyMin || entry.Key > _keyMax)
-            throw new ArgumentOutOfRangeException(nameof(entry.Key));
+        if (entry.RangeOffset < _offsetMin || entry.RangeOffset > _offsetMax)
+            throw new ArgumentOutOfRangeException(nameof(entry.RangeOffset));
 
-        int bucketIndexMin = (int)((entry.Key - _keyMin) * _buckets.Length / _keyRange);
-        int bucketIndexMax = (int)((entry.Key + entry.Length - 1 - _keyMin) * _buckets.Length / _keyRange);
+        int bucketIndexMin = (int)((entry.RangeOffset - _offsetMin) / _bucketLength);
+        int bucketIndexMax = (int)((entry.RangeOffset + entry.RangeLength - 1 - _offsetMin)  / _bucketLength);
         bucketIndexMax = Math.Min(_buckets.Length - 1, bucketIndexMax);
 
         for (int bucketIndex = bucketIndexMin; bucketIndex <= bucketIndexMax; bucketIndex++)
@@ -137,33 +124,33 @@ public partial class OrderedRangeBucketDictionary<T> : IEnumerable<OrderedRangeB
         return true;
     }
 
-    /// <summary>Removes an element from the collection.</summary>
-    /// <param name="key">The key of the element.</param>
+    /// <summary>Removes an entry from the collection.</summary>
+    /// <param name="offset">The offset of the entry.</param>
     /// <param name="entry">The entry that was removed, if found.</param>
     /// <returns>True if successful.</returns>
-    public bool Remove(long key, out RangeEntry entry)
+    public bool Remove(long offset, out T entry)
     {
-        if (key < _keyMin || key > _keyMax)
-            throw new ArgumentOutOfRangeException(nameof(key));
+        if (offset < _offsetMin || offset > _offsetMax)
+            throw new ArgumentOutOfRangeException(nameof(offset));
 
-        int bucketIndexMin = (int)((key - _keyMin) * _buckets.Length / _keyRange);
+        int bucketIndexMin = (int)((offset - _offsetMin) / _bucketLength);
 
         ref Bucket bucket = ref _buckets[bucketIndexMin];
 
-        if (bucket.Remove(key, out entry) == false)
+        if (bucket.Remove(offset, out entry) == false)
         {
             return false;
         }
 
         bucketIndexMin++;
-        int bucketIndexMax = (int)((key + entry.Length - 1 - _keyMin) * _buckets.Length / _keyRange);
+        int bucketIndexMax = (int)((offset + entry.RangeLength - 1 - _offsetMin) / _bucketLength);
         bucketIndexMax = Math.Min(_buckets.Length - 1, bucketIndexMax);
 
         for (int bucketIndex = bucketIndexMin; bucketIndex <= bucketIndexMax; bucketIndex++)
         {
             bucket = ref _buckets[bucketIndex];
 
-            bool success = bucket.Remove(key, out _);
+            bool success = bucket.Remove(offset, out _);
 
             Debug.Assert(success);
         }
@@ -172,19 +159,19 @@ public partial class OrderedRangeBucketDictionary<T> : IEnumerable<OrderedRangeB
         return true;
     }
 
-    /// <summary>Returns the nearest elements in order.</summary>
-    /// <param name="key">The key of the search start location.</param>
-    /// <returns>The nearest elements, in order.</returns>
-    public IEnumerable<RangeEntry> GetNearest(long key)
+    /// <summary>Returns the nearest entries in order.</summary>
+    /// <param name="offset">The search start location.</param>
+    /// <returns>The nearest entries, in order.</returns>
+    public IEnumerable<T> GetNearest(long offset)
     {
-        var lowerEnum = GetNearestGreaterOrEqual(key).GetEnumerator();
-        var higherEnum = GetNearestLessOrEqual(key).GetEnumerator();
+        var lowerEnum = GetNearestGreaterOrEqual(offset).GetEnumerator();
+        var higherEnum = GetNearestLessOrEqual(offset).GetEnumerator();
 
         bool movedLower = lowerEnum.MoveNext();
         bool movedHigher = higherEnum.MoveNext();
 
         // The first element might be identical when iterating both directions.
-        if (movedLower && movedHigher && lowerEnum.Current.Key == higherEnum.Current.Key)
+        if (movedLower && movedHigher && lowerEnum.Current.RangeOffset == higherEnum.Current.RangeOffset)
         {
             yield return lowerEnum.Current;
 
@@ -217,7 +204,7 @@ public partial class OrderedRangeBucketDictionary<T> : IEnumerable<OrderedRangeB
 
                 yield break;
             }
-            else if (Math.Abs(key - lowerEnum.Current.Key) < Math.Abs(key - higherEnum.Current.Key))
+            else if (Math.Abs(offset - lowerEnum.Current.RangeOffset) < Math.Abs(offset - higherEnum.Current.RangeOffset))
             {
                 yield return lowerEnum.Current;
 
@@ -232,14 +219,14 @@ public partial class OrderedRangeBucketDictionary<T> : IEnumerable<OrderedRangeB
         }
     }
 
-    /// <summary>Returns the nearest elements in order, starting from the key upward.</summary>
-    /// <param name="key">The key of the search start location.</param>
-    /// <returns>The nearest elements, in order.</returns>
-    public IEnumerable<RangeEntry> GetNearestGreaterOrEqual(long key)
+    /// <summary>Returns the nearest entries in order, starting from the offset upward.</summary>
+    /// <param name="offset">The search start location.</param>
+    /// <returns>The nearest entries, in order.</returns>
+    public IEnumerable<T> GetNearestGreaterOrEqual(long offset)
     {
-        key = Math.Min(_keyMax, Math.Max(_keyMin, key));
+        offset = Math.Min(_offsetMax, Math.Max(_offsetMin, offset));
 
-        int bucketIndex = (int)((key - _keyMin) * _buckets.Length / _keyRange);
+        int bucketIndex = (int)((offset - _offsetMin) / _bucketLength);
 
         var prevBucket = new Bucket(0, 0);
 
@@ -248,8 +235,8 @@ public partial class OrderedRangeBucketDictionary<T> : IEnumerable<OrderedRangeB
             var bucket = _buckets[i];
 
             foreach (var kvp in bucket
-                .Where(kvp => kvp.Key >= key && prevBucket.ContainsKey(kvp.Key) == false)
-                .OrderBy(kvp => kvp.Key))
+                .Where(kvp => kvp.RangeOffset >= offset && prevBucket.ContainsKey(kvp.RangeOffset) == false)
+                .OrderBy(kvp => kvp.RangeOffset))
             {
                 yield return kvp;
             }
@@ -258,14 +245,14 @@ public partial class OrderedRangeBucketDictionary<T> : IEnumerable<OrderedRangeB
         }
     }
 
-    /// <summary>Returns the nearest elements in order, starting from the key downward.</summary>
-    /// <param name="key">The key of the search start location.</param>
-    /// <returns>The nearest elements, in order.</returns>
-    public IEnumerable<RangeEntry> GetNearestLessOrEqual(long key)
+    /// <summary>Returns the nearest entries in order, starting from the offset downward.</summary>
+    /// <param name="offset">The search start location.</param>
+    /// <returns>The nearest entries, in order.</returns>
+    public IEnumerable<T> GetNearestLessOrEqual(long offset)
     {
-        key = Math.Min(_keyMax, Math.Max(_keyMin, key));
+        offset = Math.Min(_offsetMax, Math.Max(_offsetMin, offset));
 
-        int bucketIndex = (int)((key - _keyMin) * _buckets.Length / _keyRange);
+        int bucketIndex = (int)((offset - _offsetMin) / _bucketLength);
 
         var prevBucket = new Bucket(0, 0);
 
@@ -274,8 +261,8 @@ public partial class OrderedRangeBucketDictionary<T> : IEnumerable<OrderedRangeB
             var bucket = _buckets[i];
 
             foreach (var kvp in bucket
-                .Where(kvp => kvp.Key <= key && prevBucket.ContainsKey(kvp.Key) == false)
-                .OrderByDescending(kvp => kvp.Key))
+                .Where(kvp => kvp.RangeOffset <= offset && prevBucket.ContainsKey(kvp.RangeOffset) == false)
+                .OrderByDescending(kvp => kvp.RangeOffset))
             {
                 yield return kvp;
             }
@@ -284,15 +271,15 @@ public partial class OrderedRangeBucketDictionary<T> : IEnumerable<OrderedRangeB
         }
     }
 
-    /// <summary>Returns the elements in the specified key range, in order.</summary>
-    /// <param name="keyLowerBound">The key of the search start location.</param>
-    /// <param name="keyUpperBound">The key of the search end location, inclusive.</param>
+    /// <summary>Returns the entries in the specified key range, in order.</summary>
+    /// <param name="lowerBound">The search start location.</param>
+    /// <param name="lowerBound">The search end location, inclusive.</param>
     /// <returns>The elements, in order.</returns>
-    public IEnumerable<RangeEntry> GetRange(long keyLowerBound, long keyUpperBound)
+    public IEnumerable<T> GetRange(long lowerBound, long upperBound)
     {
-        foreach (var kvp in GetNearestGreaterOrEqual(keyLowerBound))
+        foreach (var kvp in GetNearestGreaterOrEqual(lowerBound))
         {
-            if (kvp.Key > keyUpperBound)
+            if (kvp.RangeOffset > upperBound)
             {
                 yield break;
             }
@@ -302,13 +289,13 @@ public partial class OrderedRangeBucketDictionary<T> : IEnumerable<OrderedRangeB
     }
 
     /// <summary>Returns all of the elements in the collection, in key order.</summary>
-    public IEnumerator<RangeEntry> GetEnumerator() =>
-        GetRange(_keyMin, _keyMax).GetEnumerator();
+    public IEnumerator<T> GetEnumerator() =>
+        GetRange(_offsetMin, _offsetMax).GetEnumerator();
 
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
     /// <summary>Returns all of the elements in the collection, unordered for best performance.</summary>
-    public IEnumerable<RangeEntry> GetUnordered()
+    public IEnumerable<T> GetUnordered()
     {
         for (int i = 0; i < _buckets.Length; i++)
         {

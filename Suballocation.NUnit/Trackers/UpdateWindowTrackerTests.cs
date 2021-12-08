@@ -14,7 +14,7 @@ namespace Suballocation.NUnit
             long offset = 0;
             for (int i = 1; i <= 255; i++)
             {
-                tracker.TrackAdditionOrUpdate(new NativeMemorySegment<int>() { PElems = (int*)offset, Length = i });
+                tracker.TrackAdditionOrUpdate(new NativeMemorySegment<int, EmptyStruct>() { PBuffer = (int*)1234, PSegment = (int*)offset, Length = i });
                 offset += (long)(i * sizeof(int) * 1.5); // Add padding of half segment length.
             }
 
@@ -31,7 +31,7 @@ namespace Suballocation.NUnit
             long offset = 0;
             for (int i = 1; i <= 255; i++)
             {
-                tracker.TrackAdditionOrUpdate(new NativeMemorySegment<int>() { PElems = (int*)offset, Length = i });
+                tracker.TrackAdditionOrUpdate(new NativeMemorySegment<int, EmptyStruct>() { PBuffer = (int*)1234, PSegment = (int*)offset, Length = i });
                 offset += i * sizeof(int) * 4; // Add the same length * 3 as padding between this and the next update window.
             }
 
@@ -47,7 +47,7 @@ namespace Suballocation.NUnit
 
             for (int i = 1; i <= 255; i++)
             {
-                tracker.TrackAdditionOrUpdate(new NativeMemorySegment<int>() { PElems = (int*)(i * 2), Length = i });
+                tracker.TrackAdditionOrUpdate(new NativeMemorySegment<int, EmptyStruct>() { PBuffer = (int*)1234, PSegment = (int*)(i * 2), Length = i });
             }
 
             tracker.Clear();
