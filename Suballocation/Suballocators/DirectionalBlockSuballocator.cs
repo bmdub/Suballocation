@@ -46,6 +46,7 @@ public unsafe class DirectionalBlockSuballocator<TSeg, TTag> : ISuballocator<TSe
         if (length % blockLength > 0) _blockCount++;
         _index = new BigArray<IndexEntry>(_blockCount);
         _pElems = (TSeg*)NativeMemory.Alloc((nuint)length, (nuint)Unsafe.SizeOf<TSeg>());
+        GC.AddMemoryPressure(length * Unsafe.SizeOf<TSeg>());
         _privatelyOwned = true;
 
         InitIndexes();
@@ -472,6 +473,7 @@ public unsafe class DirectionalBlockSuballocator<TSeg, TTag> : ISuballocator<TSe
             if (_privatelyOwned)
             {
                 NativeMemory.Free(_pElems);
+                GC.RemoveMemoryPressure(Length * Unsafe.SizeOf<TSeg>());
             }
 
             _disposed = true;

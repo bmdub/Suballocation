@@ -43,6 +43,7 @@ public unsafe class SequentialBlockSuballocator<TSeg, TTag> : ISuballocator<TSeg
         if (length % blockLength > 0) _blockCount++;
         _index = new BigArray<IndexEntry>(_blockCount);
         _pElems = (TSeg*)NativeMemory.Alloc((nuint)length, (nuint)Unsafe.SizeOf<TSeg>());
+        GC.AddMemoryPressure(length * Unsafe.SizeOf<TSeg>());
         _privatelyOwned = true;
 
         InitIndexes();
@@ -277,6 +278,7 @@ public unsafe class SequentialBlockSuballocator<TSeg, TTag> : ISuballocator<TSeg
             if (_privatelyOwned)
             {
                 NativeMemory.Free(_pElems);
+                GC.RemoveMemoryPressure(Length * Unsafe.SizeOf<TSeg>());
             }
 
             _disposed = true;

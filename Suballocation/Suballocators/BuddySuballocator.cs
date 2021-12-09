@@ -47,8 +47,6 @@ public unsafe class BuddySuballocator<TSeg, TTag> : ISuballocator<TSeg, TTag>, I
     private long _freeBlockIndexesFlags;
     private long[] _freeBlockIndexesStart = null!;
     private bool _disposed;
-    private delegate bool TryReturnDelegate(NativeMemorySegment<TSeg, TTag> segment);
-    private TryReturnDelegate _tryReturnDelegate;
 
     /// <summary>Creates a BuddyAllocator instance and allocates a buffer of the specified length.</summary>
     /// <param name="length">Element length of the buffer to allocate.</param>
@@ -64,6 +62,7 @@ public unsafe class BuddySuballocator<TSeg, TTag> : ISuballocator<TSeg, TTag>, I
         _privatelyOwned = true;
         
         _pElems = (TSeg*)NativeMemory.Alloc((nuint)length, (nuint)Unsafe.SizeOf<TSeg>());
+        GC.AddMemoryPressure(length * Unsafe.SizeOf<TSeg>());
 
         Init(minBlockLength);
     }
@@ -410,6 +409,7 @@ public unsafe class BuddySuballocator<TSeg, TTag> : ISuballocator<TSeg, TTag>, I
             if (_privatelyOwned)
             {
                 NativeMemory.Free(_pElems);
+                GC.RemoveMemoryPressure(Length * Unsafe.SizeOf<TSeg>());
             }
 
             _disposed = true;

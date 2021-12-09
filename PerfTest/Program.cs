@@ -101,7 +101,7 @@ public partial class Program
                             youthReturnFactor: .5,
                             updateWindowFillPercentage: .21,
                             updatesPerWindow: 10,
-                            defragment: false,
+                            defragment: true,
                             fragmentBucketLength: 65536))
                     .ToList();
 
