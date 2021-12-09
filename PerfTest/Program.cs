@@ -3,19 +3,6 @@ using Suballocation.Suballocators;
 
 namespace PerfTest;
 
-//https://docs.microsoft.com/en-us/archive/msdn-magazine/2000/december/garbage-collection-part-2-automatic-memory-management-in-the-microsoft-net-framework 
-// The newer an object is, the shorter its lifetime will be.
-// The older an object is, the longer its lifetime will be.
-// Newer objects tend to have strong relationships to each other and are frequently accessed around the same time.
-// Compacting a portion of the heap is faster than compacting the whole heap.
-
-//me
-// The larger an object is, the longer its lifetime will be.
-// The larger an object is, the larger the acceptable update window / placement distance.
-// Less fragmentation if segment is near similar-sized segments?
-// Larger objects near center will hurt locality
-// Objects near edges may be re-traversed more quickly (and skipped over).
-
 //todo:
 // Sampling strategy. 
 // OptimizeHead()
@@ -48,7 +35,7 @@ public partial class Program
         }
 
         // Run a test for each suballocator.
-        /*{
+        {
             string tag = "Random Short";
 
             var results =
@@ -68,7 +55,7 @@ public partial class Program
                             youthReturnFactor: .5,
                             updateWindowFillPercentage: .21,
                             updatesPerWindow: 1,
-                            defragment: false,
+                            defragment: true,
                             fragmentBucketLength: 128))
                     .ToList();
 
@@ -78,7 +65,7 @@ public partial class Program
             results.ShowPatternImages();
 
             Console.ReadKey();
-        }*/
+        }
 
         // Run a test for each suballocator.
         {
@@ -94,14 +81,14 @@ public partial class Program
                             suballocator: suballocator,
                             seed: 0,
                             imageWidth: _imageWidth, imageHeight: _imageHeight,
-                            totalLengthToRent: 33_000_000,
+                            totalLengthToRent: 33_000_000 * 4,
                             minSegmentLenInitial: 1, minSegmentLenFinal: 1,
                             maxSegmentLenInitial: 65536 * 1, maxSegmentLenFinal: 32,
-                            desiredFillPercentage: .9,
+                            desiredFillPercentage: .6,
                             youthReturnFactor: .5,
                             updateWindowFillPercentage: .21,
                             updatesPerWindow: 10,
-                            defragment: true,
+                            defragment: false,
                             fragmentBucketLength: 65536))
                     .ToList();
 

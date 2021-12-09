@@ -39,7 +39,7 @@ public unsafe class DirectionalBlockSuballocator<TSeg, TTag> : ISuballocator<TSe
     {
         if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length), $"Buffer length must be greater than 0.");
         if (blockLength <= 0 || blockLength > int.MaxValue) throw new ArgumentOutOfRangeException(nameof(blockLength), $"Block length must be greater than 0 and less than Int32.Max.");
-        
+
         Length = length;
         _blockLength = blockLength;
         _blockCount = length / blockLength;
@@ -146,10 +146,12 @@ public unsafe class DirectionalBlockSuballocator<TSeg, TTag> : ISuballocator<TSe
         // Decide which direction to search, based on current index distance from either end, and the amount of free space left on either side.
         bool directionForwardPrev = _directionForward;
         _directionForward = false;
-        var distanceFromCenter = ((_currentIndex + 1) / (double)_blockCount) - .5;
+        var distanceFromCenter = (((_currentIndex + 1) / (double)_blockCount) - .5) * 2;
         var balance = _freeBlockBalance / (double)_blockCount;
         var dir = directionForwardPrev ? 1 : -1;
-        if (balance * 1 + distanceFromCenter * .5 + dir * 1 >= 0) // TODO: Make configurable
+       // Console.WriteLine($"{balance}, {distanceFromCenter}, {dir}");
+        //distanceFromCenter = Math.Sign(distanceFromCenter) == Math.Sign(dir) ? distanceFromCenter : 0;
+        if (balance * 1.0 + distanceFromCenter * 0.0 + dir * 0.3 >= 0) // TODO: Make configurable
         {
             _directionForward = true;
         }
@@ -216,7 +218,7 @@ public unsafe class DirectionalBlockSuballocator<TSeg, TTag> : ISuballocator<TSe
 
             if (header.Occupied)
             {
-                if(AdvanceIndex() == false)
+                if (AdvanceIndex() == false)
                 {
                     segment = default;
                     return false;
@@ -324,17 +326,27 @@ public unsafe class DirectionalBlockSuballocator<TSeg, TTag> : ISuballocator<TSe
         Allocations--;
         Used -= blockCount * _blockLength;
 
-        // While we're here, see if we can combine the nearby free segments with this one.
+        if (blockIndex >= _currentIndex)
+        {
+            _freeBlockBalance += blockCount;
+        }
+        else
+        {
+            _freeBlockBalance -= blockCount;
+        }
+
+        // While we're here, see if we can combine the nearby free segments with this one. //
         long rangeStart = blockIndex;
         int rangeLength = blockCount;
 
         var nextIndex = blockIndex + header.BlockCount;
 
+        // Combine with next free segments
         while (nextIndex < _blockCount)
         {
             ref IndexEntry nextHeader = ref _index[nextIndex];
 
-            if (nextHeader.Occupied || header.BlockCount + nextHeader.BlockCount > int.MaxValue) 
+            if (nextHeader.Occupied || header.BlockCount + nextHeader.BlockCount > int.MaxValue)
             {
                 break;
             }
@@ -346,6 +358,7 @@ public unsafe class DirectionalBlockSuballocator<TSeg, TTag> : ISuballocator<TSe
             nextIndex += nextHeader.BlockCount;
         }
 
+        // Combine with previous free segments
         var prevPrevIndex = blockIndex;
         var prevIndex = blockIndex - header.BlockCountPrev;
 
@@ -375,27 +388,17 @@ public unsafe class DirectionalBlockSuballocator<TSeg, TTag> : ISuballocator<TSe
         }
 
         // If we combined free segments, then update the previous size of the next occupied segment
-        if(rangeLength != blockCount && rangeStart + rangeLength < _blockCount)
+        if (rangeLength != blockCount && rangeStart + rangeLength < _blockCount)
         {
             ref IndexEntry nextHeader = ref _index[rangeStart + rangeLength];
             nextHeader = nextHeader with { BlockCountPrev = rangeLength };
         }
 
+        // If we are in the middle of a larger combined free segment, then move the head.
         if (_currentIndex > rangeStart && _currentIndex < rangeStart + rangeLength)
         {
             _freeBlockBalance += (_currentIndex - rangeStart) << 1;
             _currentIndex = rangeStart;
-        }
-        else
-        {
-            if (rangeStart >= _currentIndex)
-            {
-                _freeBlockBalance += blockCount;
-            }
-            else
-            {
-                _freeBlockBalance -= blockCount;
-            }
         }
 
         return true;
