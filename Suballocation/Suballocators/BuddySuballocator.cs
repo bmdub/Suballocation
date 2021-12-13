@@ -242,31 +242,60 @@ public unsafe class BuddySuballocator<TSeg, TTag> : ISuballocator<TSeg, TTag>, I
         return true;
     }
 
-    public bool TryReturn(NativeMemorySegment<TSeg, TTag> segment)
+    public TTag GetTag(TSeg* segmentPtr)
     {
         if (_disposed) throw new ObjectDisposedException(nameof(BuddySuballocator<TSeg, TTag>));
 
         // Convert to block space (divide length by block size).
-        long blockCount = segment.Length / MinBlockLength;
-
-        long offset = segment.PSegment - _pElems;
+        long offset = segmentPtr - _pElems;
 
         long freeBlockIndexIndex = offset / MinBlockLength;
 
         if (freeBlockIndexIndex < 0 || freeBlockIndexIndex >= _indexLength)
-            throw new ArgumentOutOfRangeException(nameof(segment.PSegment));
+        {
+            throw new ArgumentOutOfRangeException(nameof(segmentPtr));
+        }
 
         ref BlockHeader header = ref _index[freeBlockIndexIndex];
 
         if (header.Occupied == false || header.Valid == false)
         {
-            return false;
+            throw new InvalidOperationException($"Rented segment not found.");
+        }
+
+        return header.Tag;
+    }
+
+    public void Return(NativeMemorySegment<TSeg, TTag> segment)
+    {
+        Return(segment.PSegment);
+    }
+
+    public unsafe void Return(TSeg* segmentPtr)
+    {
+        if (_disposed) throw new ObjectDisposedException(nameof(BuddySuballocator<TSeg, TTag>));
+
+        // Convert to block space (divide length by block size).
+        long offset = segmentPtr - _pElems;
+
+        long freeBlockIndexIndex = offset / MinBlockLength;
+
+        if (freeBlockIndexIndex < 0 || freeBlockIndexIndex >= _indexLength)
+        {
+            throw new ArgumentOutOfRangeException(nameof(segmentPtr));
+        }
+
+        ref BlockHeader header = ref _index[freeBlockIndexIndex];
+
+        if (header.Occupied == false || header.Valid == false)
+        {
+            throw new InvalidOperationException($"Attempt to return unrented segment.");
         }
 
         header = header with { Valid = false };
 
         Allocations--;
-        BlocksUsed -= blockCount;
+        BlocksUsed -= header.BlockCount;
 
         // If the returned block has a 'buddy' block next to it that is also free, then combine the two (recursively).
         Combine(freeBlockIndexIndex, header.BlockCountLog);
@@ -307,8 +336,6 @@ public unsafe class BuddySuballocator<TSeg, TTag> : ISuballocator<TSeg, TTag>, I
 
             Combine(blockIndexIndex, lengthLog + 1);
         }
-
-        return true;
     }
 
     /// <summary>Free blocks are changed to each other, grouped by size. This removes a block from a chain and connects the chain.</summary>

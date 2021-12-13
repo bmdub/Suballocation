@@ -52,10 +52,17 @@ public unsafe interface ISuballocator<TSeg, TTag> : ISuballocator, IEnumerable<N
     /// <returns>True if successful; False if free space could not be found for this segment.</returns>
     public bool TryRent(long length, out NativeMemorySegment<TSeg, TTag> segment, TTag tag = default!);
 
+    /// <summary>Returns the tag associated with the given rented segment.</summary>
+    /// <param name="segmentPtr">The pointer to a rented segment of memory from this allocator.</param>
+    public TTag GetTag(TSeg* segmentPtr);
+
     /// <summary>Disposes of the given rented memory segment, and makes the memory available for rent once again. Could be called in place of Dispose() on a segment.</summary>
     /// <param name="segment">A previously rented segment of memory from this allocator.</param>
-    /// <returns>True if successful; False if the suballocator presently has no matching free segment to free.</returns>
-    public bool TryReturn(NativeMemorySegment<TSeg, TTag> segment);
+    public void Return(NativeMemorySegment<TSeg, TTag> segment);
+
+    /// <summary>Disposes of the given rented memory segment, and makes the memory available for rent once again.</summary>
+    /// <param name="segmentPtr">The pointer to a rented segment of memory from this allocator.</param>
+    public void Return(TSeg* segmentPtr);
 
     /// <summary>Clears all records of all outstanding rented segments, returning the allocator to an initial state. 
     /// NOTE: Behavior is undefined if any outstanding segment contents are modified after Clear() is called.</summary>
@@ -75,15 +82,5 @@ public static class ISuballocatorExtensions
         }
 
         return segment;
-    }
-
-    /// <summary>Disposes of the given rented memory segment, and makes the memory available for rent once again.</summary>
-    /// <param name="segment">A previously rented segment of memory from this allocator.</param>
-    public static void Return<TSeg, TTag>(this ISuballocator<TSeg, TTag> suballocator, NativeMemorySegment<TSeg, TTag> segment) where TSeg : unmanaged
-    {
-        if (suballocator.TryReturn(segment) == false)
-        {
-            throw new ArgumentException($"Segment not found.");
-        }
     }
 }

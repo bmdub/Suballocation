@@ -82,27 +82,27 @@ namespace Suballocation.NUnit
         [Test]
         public void MinBlockLengthTest()
         {
-            using (var allocator = new DirectionalBlockSuballocator<int>(65536, 32))
+            using (var suballocator = new DirectionalBlockSuballocator<int>(65536, 32))
             {
                 List<NativeMemorySegment<int, EmptyStruct>> segments = new();
 
                 for (int i = 0; i < 65536 / 32; i++)
                 {
-                    segments.Add(allocator.Rent(1));
+                    segments.Add(suballocator.Rent(1));
                 }
 
-                Assert.Throws<OutOfMemoryException>(() => allocator.Rent(1));
+                Assert.Throws<OutOfMemoryException>(() => suballocator.Rent(1));
 
-                Assert.AreEqual(0, allocator.FreeBytes);
-                Assert.AreEqual(0, allocator.Free);
+                Assert.AreEqual(0, suballocator.FreeBytes);
+                Assert.AreEqual(0, suballocator.Free);
 
                 foreach (var segment in segments)
                 {
-                    allocator.Return(segment);
+                    suballocator.Return(segment);
                 }
 
-                Assert.AreEqual(65536 * sizeof(int), allocator.FreeBytes);
-                Assert.AreEqual(65536, allocator.Free);
+                Assert.AreEqual(65536 * sizeof(int), suballocator.FreeBytes);
+                Assert.AreEqual(65536, suballocator.Free);
             }
         }
 
@@ -159,23 +159,23 @@ namespace Suballocation.NUnit
         {
             long length = 100;
 
-            using (var allocator = new DirectionalBlockSuballocator<int>(length, 1))
+            using (var suballocator = new DirectionalBlockSuballocator<int>(length, 1))
             {
-                Assert.Throws<ArgumentOutOfRangeException>(() => allocator.Rent(0));
-                Assert.Throws<ArgumentOutOfRangeException>(() => allocator.Rent(-1));
+                Assert.Throws<ArgumentOutOfRangeException>(() => suballocator.Rent(0));
+                Assert.Throws<ArgumentOutOfRangeException>(() => suballocator.Rent(-1));
 
-                var segment = allocator.Rent(100);
+                var segment = suballocator.Rent(100);
 
-                allocator.Return(segment);
+                suballocator.Return(segment);
 
-                Assert.Throws<OutOfMemoryException>(() => allocator.Rent(101));
+                Assert.Throws<OutOfMemoryException>(() => suballocator.Rent(101));
 
                 for (int i = 0; i < length; i++)
                 {
-                    allocator.Rent(1);
+                    suballocator.Rent(1);
                 }
 
-                Assert.Throws<OutOfMemoryException>(() => allocator.Rent(1));
+                Assert.Throws<OutOfMemoryException>(() => suballocator.Rent(1));
             }
         }
 
@@ -197,13 +197,13 @@ namespace Suballocation.NUnit
         [Test]
         public void GetEnumeratorTest()
         {
-            using (var allocator = new SequentialBlockSuballocator<int>(32640 * 2, 2))
+            using (var suballocator = new SequentialBlockSuballocator<int>(32640 * 2, 2))
             {
                 HashSet<NativeMemorySegment<int, EmptyStruct>> segments = new();
 
                 for (int i = 1; i <= 255; i++)
                 {
-                    var segment = allocator.Rent(i);
+                    var segment = suballocator.Rent(i);
                     segments.Add(segment);
                 }
 
@@ -211,11 +211,11 @@ namespace Suballocation.NUnit
                 var setList = segments.ToList();
                 for (int i = 0; i < setList.Count; i += 3)
                 {
-                    allocator.Return(setList[i]);
+                    suballocator.Return(setList[i]);
                     returnCount++;
                 }
 
-                var found = allocator.ToList();
+                var found = suballocator.ToList();
 
                 Assert.AreEqual(segments.Count - returnCount, found.Count);
 

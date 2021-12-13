@@ -203,28 +203,48 @@ public unsafe class SequentialBlockSuballocator<TSeg, TTag> : ISuballocator<TSeg
         return false;
     }
 
-    public bool TryReturn(NativeMemorySegment<TSeg, TTag> segment)
+    public TTag GetTag(TSeg* segmentPtr)
     {
         if (_disposed) throw new ObjectDisposedException(nameof(SequentialBlockSuballocator<TSeg, TTag>));
 
-        long index = segment.PSegment - _pElems;
+        long index = segmentPtr - _pElems;
 
-        // Convert to block space (divide length by block size).
         long blockIndex = index / _blockLength;
-        long blockCount = segment.Length / _blockLength;
 
         ref IndexEntry header = ref _index[blockIndex];
 
-        if (header.BlockCount != blockCount)
+        if (header.Occupied == false)
         {
-            return false;
+            throw new InvalidOperationException($"Rented segment not found.");
+        }
+
+        return header.Tag;
+    }
+
+    public void Return(NativeMemorySegment<TSeg, TTag> segment)
+    {
+        Return(segment.PSegment);
+    }
+
+    public unsafe void Return(TSeg* segmentPtr)
+    {
+        if (_disposed) throw new ObjectDisposedException(nameof(SequentialBlockSuballocator<TSeg, TTag>));
+
+        long index = segmentPtr - _pElems;
+
+        long blockIndex = index / _blockLength;
+
+        ref IndexEntry header = ref _index[blockIndex];
+
+        if (header.Occupied == false)
+        {
+            throw new InvalidOperationException($"Attempt to return unrented segment.");
         }
 
         header = header with { Occupied = false };
 
         Allocations--;
-        Used -= blockCount * _blockLength;
-        return true;
+        Used -= header.BlockCount * _blockLength;
     }
 
     public void Clear()
