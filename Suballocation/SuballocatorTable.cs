@@ -9,14 +9,13 @@ namespace Suballocation
     /// This smells a bit, but I haven't found a better solution.
     /// </summary>
     /// <typeparam name="TSeg">A blittable element type that defines the units to allocate.</typeparam>
-    /// <typeparam name="TTag">Type to be tied to each segment, as a separate entity from the segment contents. Use 'EmptyStruct' if none is desired.</typeparam>
-    public static class SuballocatorTable<TSeg, TTag> where TSeg : unmanaged
+    public static class SuballocatorTable<T> where T : unmanaged
     {
-        private static ConcurrentDictionary<IntPtr, ISuballocator<TSeg, TTag>> _suballocatorsById = new();
+        private static ConcurrentDictionary<IntPtr, ISuballocator<T>> _suballocatorsById = new();
 
         /// <summary>Registers a suballocator such that it is accessible from allocated segments.</summary>
         /// <param name="suballocator">The suballocator to register.</param>
-        public static unsafe void Register(ISuballocator<TSeg, TTag> suballocator)
+        public static unsafe void Register(ISuballocator<T> suballocator)
         {
             if(suballocator.PElems == null)
             {
@@ -33,7 +32,7 @@ namespace Suballocation
 
         /// <summary>Removes the suballocator with the given ID from the collection.</summary>
         /// <param name="suballocator">The suballocator to deregister.</param>
-        public static unsafe void Deregister(ISuballocator<TSeg, TTag> suballocator)
+        public static unsafe void Deregister(ISuballocator<T> suballocator)
         {
             var ptr = (IntPtr)suballocator.PElems;
 
@@ -47,7 +46,7 @@ namespace Suballocation
         /// <param name="ptr">The pointer to the beginning of a registered suballocator's buffer.</param>
         /// <param name="suballocator">The suballocator with the given buffer.</param>
         /// <returns>True if found.</returns>
-        public static bool TryGetByBufferAddress(IntPtr ptr, out ISuballocator<TSeg, TTag> suballocator)
+        public static bool TryGetByBufferAddress(IntPtr ptr, out ISuballocator<T> suballocator)
         {
             return _suballocatorsById.TryGetValue(ptr, out suballocator!);
         }

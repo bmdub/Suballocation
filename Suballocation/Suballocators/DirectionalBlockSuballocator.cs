@@ -4,23 +4,14 @@ using System.Collections;
 
 namespace Suballocation.Suballocators;
 
-public unsafe sealed class DirectionalBlockSuballocator<TSeg> : DirectionalBlockSuballocator<TSeg, EmptyStruct>, ISuballocator<TSeg> where TSeg : unmanaged
-{
-    public DirectionalBlockSuballocator(long length, long blockLength = 1) : base(length, blockLength) { }
-
-    public DirectionalBlockSuballocator(TSeg* pElems, long length, long blockLength = 1) : base(pElems, length, blockLength) { }
-
-    public DirectionalBlockSuballocator(Memory<TSeg> data, long blockLength = 1) : base(data, blockLength) { }
-}
-
 /// <summary>
 /// A suballocator that uses a heuristic to determine the direction in which to search for the next segment to rent.
 /// </summary>
-/// <typeparam name="TSeg">A blittable element type that defines the units to allocate.</typeparam>
+/// <typeparam name="T">A blittable element type that defines the units to allocate.</typeparam>
 /// <typeparam name="TTag">Type to be tied to each segment, as a separate entity from the segment contents.</typeparam>
-public unsafe class DirectionalBlockSuballocator<TSeg, TTag> : ISuballocator<TSeg, TTag>, IDisposable where TSeg : unmanaged
+public unsafe class DirectionalBlockSuballocator<T> : ISuballocator<T>, IDisposable where T : unmanaged
 {
-    private readonly TSeg* _pElems;
+    private readonly T* _pElems;
     private readonly BigArray<IndexEntry> _index;
     private readonly long _blockLength;
     private readonly long _blockCount;
@@ -48,13 +39,13 @@ public unsafe class DirectionalBlockSuballocator<TSeg, TTag> : ISuballocator<TSe
         _blockCount = length / blockLength;
         if (length % blockLength > 0) _blockCount++;
         _index = new BigArray<IndexEntry>(_blockCount);
-        _pElems = (TSeg*)NativeMemory.Alloc((nuint)length, (nuint)Unsafe.SizeOf<TSeg>());
-        GC.AddMemoryPressure(length * Unsafe.SizeOf<TSeg>());
+        _pElems = (T*)NativeMemory.Alloc((nuint)length, (nuint)Unsafe.SizeOf<T>());
+        GC.AddMemoryPressure(length * Unsafe.SizeOf<T>());
         _privatelyOwned = true;
 
         InitIndexes();
 
-        SuballocatorTable<TSeg, TTag>.Register(this);
+        SuballocatorTable<T>.Register(this);
     }
 
     /// <summary>Creates a suballocator instance using a preallocated backing buffer.</summary>
@@ -64,7 +55,7 @@ public unsafe class DirectionalBlockSuballocator<TSeg, TTag> : ISuballocator<TSe
     /// <param name="directionStrategy">Optional strategy to use at every rental attempt to determin which direction of the buffer to search. If null, the default strategy is used.</param>
     /// <exception cref="ArgumentOutOfRangeException"></exception>
     /// <exception cref="ArgumentNullException"></exception>
-    public DirectionalBlockSuballocator(TSeg* pElems, long length, long blockLength = 1, IDirectionStrategy directionStrategy = null!)
+    public DirectionalBlockSuballocator(T* pElems, long length, long blockLength = 1, IDirectionStrategy directionStrategy = null!)
     {
         if (pElems == null) throw new ArgumentNullException(nameof(pElems));
         if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length), $"Buffer length must be greater than 0.");
@@ -80,7 +71,7 @@ public unsafe class DirectionalBlockSuballocator<TSeg, TTag> : ISuballocator<TSe
 
         InitIndexes();
 
-        SuballocatorTable<TSeg, TTag>.Register(this);
+        SuballocatorTable<T>.Register(this);
     }
 
     /// <summary>Creates a suballocator instance using a preallocated backing buffer.</summary>
@@ -88,7 +79,7 @@ public unsafe class DirectionalBlockSuballocator<TSeg, TTag> : ISuballocator<TSe
     /// <param name="blockLength">Element length of the smallest desired block size used internally for any rented segment.</param>
     /// <param name="directionStrategy">Optional strategy to use at every rental attempt to determin which direction of the buffer to search. If null, the default strategy is used.</param>
     /// <exception cref="ArgumentOutOfRangeException"></exception>
-    public DirectionalBlockSuballocator(Memory<TSeg> data, long blockLength = 1, IDirectionStrategy directionStrategy = null!)
+    public DirectionalBlockSuballocator(Memory<T> data, long blockLength = 1, IDirectionStrategy directionStrategy = null!)
     {
         if (blockLength <= 0 || blockLength > int.MaxValue) throw new ArgumentOutOfRangeException(nameof(blockLength), $"Block length must be greater than 0 and less than Int32.Max.");
 
@@ -99,16 +90,16 @@ public unsafe class DirectionalBlockSuballocator<TSeg, TTag> : ISuballocator<TSe
         if (data.Length % blockLength > 0) _blockCount++;
         _index = new BigArray<IndexEntry>(_blockCount);
         _memoryHandle = data.Pin();
-        _pElems = (TSeg*)_memoryHandle.Pointer;
+        _pElems = (T*)_memoryHandle.Pointer;
 
         InitIndexes();
 
-        SuballocatorTable<TSeg, TTag>.Register(this);
+        SuballocatorTable<T>.Register(this);
     }
 
-    public long UsedBytes => Used * Unsafe.SizeOf<TSeg>();
+    public long UsedBytes => Used * Unsafe.SizeOf<T>();
 
-    public long LengthBytes => Length * Unsafe.SizeOf<TSeg>();
+    public long LengthBytes => Length * Unsafe.SizeOf<T>();
 
     public long FreeBytes { get => LengthBytes - UsedBytes; }
 
@@ -120,7 +111,7 @@ public unsafe class DirectionalBlockSuballocator<TSeg, TTag> : ISuballocator<TSe
 
     public long Free { get => Length - Used; }
 
-    public TSeg* PElems => _pElems;
+    public T* PElems => _pElems;
 
     public byte* PBytes => (byte*)_pElems;
 
@@ -134,9 +125,9 @@ public unsafe class DirectionalBlockSuballocator<TSeg, TTag> : ISuballocator<TSe
         }
     }
 
-    public bool TryRent(long length, out NativeMemorySegment<TSeg, TTag> segment, TTag tag = default!)
+    public bool TryRent(long length, out T* segmentPtr, out long lengthActual)
     {
-        if (_disposed) throw new ObjectDisposedException(nameof(SequentialBlockSuballocator<TSeg, TTag>));
+        if (_disposed) throw new ObjectDisposedException(nameof(SequentialBlockSuballocator<T>));
         if (length <= 0 || length > int.MaxValue * _blockLength)
             throw new ArgumentOutOfRangeException(nameof(length), $"{nameof(length)} must be greater than 0 and less than Int32.Max times the block length.");
 
@@ -224,7 +215,8 @@ public unsafe class DirectionalBlockSuballocator<TSeg, TTag> : ISuballocator<TSe
             {
                 if (AdvanceIndex() == false)
                 {
-                    segment = default;
+                    segmentPtr = default;
+                    lengthActual = 0;
                     return false;
                 }
 
@@ -235,7 +227,8 @@ public unsafe class DirectionalBlockSuballocator<TSeg, TTag> : ISuballocator<TSe
             {
                 if (AdvanceIndex() == false)
                 {
-                    segment = default;
+                    segmentPtr = default;
+                    lengthActual = 0;
                     return false;
                 }
 
@@ -262,13 +255,14 @@ public unsafe class DirectionalBlockSuballocator<TSeg, TTag> : ISuballocator<TSe
                     var leftoverEntry = new IndexEntry() { BlockCount = header.BlockCount - blockCount, BlockCountPrev = blockCount };
                     _index[targetIndex + blockCount] = leftoverEntry;
 
-                    header = header with { Occupied = true, BlockCount = blockCount, Tag = tag };
+                    header = header with { Occupied = true, BlockCount = blockCount };
 
                     _freeBlockBalance -= blockCount;
 
                     if (AdvanceIndex() == false)
                     {
-                        segment = default;
+                        segmentPtr = default;
+                        lengthActual = 0;
                         return false;
                     }
                 }
@@ -284,18 +278,19 @@ public unsafe class DirectionalBlockSuballocator<TSeg, TTag> : ISuballocator<TSe
                     _index[targetIndex] = leftoverEntry;
 
                     targetIndex += leftoverEntry.BlockCount;
-                    _index[targetIndex] = new IndexEntry { Occupied = true, BlockCount = blockCount, BlockCountPrev = leftoverEntry.BlockCount, Tag = tag };
+                    _index[targetIndex] = new IndexEntry { Occupied = true, BlockCount = blockCount, BlockCountPrev = leftoverEntry.BlockCount };
 
                     _freeBlockBalance -= blockCount;
                 }
             }
             else
             {
-                header = header with { Occupied = true, Tag = tag };
+                header = header with { Occupied = true };
 
                 if (AdvanceIndex() == false)
                 {
-                    segment = default;
+                    segmentPtr = default;
+                    lengthActual = 0;
                     return false;
                 }
             }
@@ -303,37 +298,20 @@ public unsafe class DirectionalBlockSuballocator<TSeg, TTag> : ISuballocator<TSe
             Allocations++;
             Used += blockCount * _blockLength;
 
-            segment = new NativeMemorySegment<TSeg, TTag>(_pElems, _pElems + targetIndex * _blockLength, blockCount * _blockLength, tag);
+            segmentPtr = _pElems + targetIndex * _blockLength;
+            lengthActual = blockCount * _blockLength;
             return true;
         }
     }
 
-    public TTag GetTag(TSeg* segmentPtr)
-    {
-        if (_disposed) throw new ObjectDisposedException(nameof(SequentialBlockSuballocator<TSeg, TTag>));
-
-        long index = segmentPtr - _pElems;
-
-        long blockIndex = index / _blockLength;
-
-        ref IndexEntry header = ref _index[blockIndex];
-
-        if (header.Occupied == false)
-        {
-            throw new InvalidOperationException($"Rented segment not found.");
-        }
-
-        return header.Tag;
-    }
-
-    public void Return(NativeMemorySegment<TSeg, TTag> segment)
+    public void Return(Segment<T> segment)
     {
         Return(segment.PSegment);
     }
 
-    public unsafe void Return(TSeg* segmentPtr)
+    public unsafe void Return(T* segmentPtr)
     {
-        if (_disposed) throw new ObjectDisposedException(nameof(SequentialBlockSuballocator<TSeg, TTag>));
+        if (_disposed) throw new ObjectDisposedException(nameof(SequentialBlockSuballocator<T>));
 
         long index = segmentPtr - _pElems;
 
@@ -439,19 +417,19 @@ public unsafe class DirectionalBlockSuballocator<TSeg, TTag> : ISuballocator<TSe
         InitIndexes();
     }
 
-    public IEnumerator<NativeMemorySegment<TSeg, TTag>> GetEnumerator() =>
+    public IEnumerator<(IntPtr SegmentPtr, long Length)> GetEnumerator() =>
         GetOccupiedSegments().GetEnumerator();
 
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
-    private IEnumerable<NativeMemorySegment<TSeg, TTag>> GetOccupiedSegments()
+    private IEnumerable<(IntPtr SegmentPtr, long Length)> GetOccupiedSegments()
     {
         long index = _currentIndex;
 
         IndexEntry GetEntry() => _index[index];
 
-        NativeMemorySegment<TSeg, TTag> GenerateSegment(long blockCount, TTag tag) =>
-            new NativeMemorySegment<TSeg, TTag>(_pElems, _pElems + index * _blockLength, blockCount * _blockLength, tag);
+        (IntPtr SegmentPtr, long Length) GenerateSegment(long blockCount) =>
+            ((IntPtr)(_pElems + index * _blockLength), blockCount * _blockLength);
 
         // Iterate backward from current head
         var entry = GetEntry();
@@ -464,7 +442,7 @@ public unsafe class DirectionalBlockSuballocator<TSeg, TTag> : ISuballocator<TSe
 
             if (entry.Occupied == true)
             {
-                yield return GenerateSegment(entry.BlockCount, entry.Tag);
+                yield return GenerateSegment(entry.BlockCount);
             }
 
             index -= entry.BlockCountPrev;
@@ -479,7 +457,7 @@ public unsafe class DirectionalBlockSuballocator<TSeg, TTag> : ISuballocator<TSe
 
             if (entry.Occupied == true)
             {
-                yield return GenerateSegment(entry.BlockCount, entry.Tag);
+                yield return GenerateSegment(entry.BlockCount);
             }
 
             index += entry.BlockCount;
@@ -494,14 +472,14 @@ public unsafe class DirectionalBlockSuballocator<TSeg, TTag> : ISuballocator<TSe
             {
             }
 
-            SuballocatorTable<TSeg, TTag>.Deregister(this);
+            SuballocatorTable<T>.Deregister(this);
 
             _memoryHandle.Dispose();
 
             if (_privatelyOwned)
             {
                 NativeMemory.Free(_pElems);
-                GC.RemoveMemoryPressure(Length * Unsafe.SizeOf<TSeg>());
+                GC.RemoveMemoryPressure(Length * Unsafe.SizeOf<T>());
             }
 
             _disposed = true;
@@ -524,12 +502,10 @@ public unsafe class DirectionalBlockSuballocator<TSeg, TTag> : ISuballocator<TSe
     {
         private readonly uint _general1;
         private readonly int _general2;
-        private readonly TTag _tag;
 
         public bool Occupied { get => (_general1 & 0x10000000u) != 0; init => _general1 = value ? (_general1 | 0x10000000u) : (_general1 & 0xEFFFFFFFu); }
         public int BlockCount { get => (int)(_general1 & 0xEFFFFFFFu); init => _general1 = (_general1 & 0x10000000u) | ((uint)value & 0xEFFFFFFFu); }
         public int BlockCountPrev { get => _general2; init => _general2 = value; }
-        public TTag Tag { get => _tag; init => _tag = value; }
     }
 
     public interface IDirectionStrategy

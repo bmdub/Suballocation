@@ -45,11 +45,11 @@ namespace PerfTest
         /// <param name="updateWindowFillPercentage">The minimum update rate for a portion of the buffer to be coalesced into an update window.</param>
         /// <param name="updatesPerWindow">The number of rents/returns to assign to each "update" or build of the update windows.</param>
         /// <returns></returns>
-        public static unsafe Benchmark Run<TSeg>(
+        public static unsafe Benchmark Run<T>(
             string imageFolder,
             string name,
             string tag,
-            ISuballocator<TSeg> suballocator,
+            ISuballocator<T> suballocator,
             int seed,
             int imageWidth,
             int imageHeight,
@@ -64,7 +64,7 @@ namespace PerfTest
             int updatesPerWindow,
             bool defragment,
             long fragmentBucketLength)
-            where TSeg : unmanaged
+            where T : unmanaged
         {
             long lengthRentedCurrent = 0;
             long lengthRentedTotal = 0;
@@ -88,13 +88,13 @@ namespace PerfTest
             var imageYOffset = imageInfo.Height - 1;
             surface.Canvas.Clear(SKColors.Black);
 
-            List<NativeMemorySegment<TSeg, EmptyStruct>> segments = new();
+            List<Segment<T>> segments = new();
             Dictionary<long, int> segmentsByOffset = new();
-            List<(int Type, NativeMemorySegment<TSeg, EmptyStruct> Segment, int SegmentIndex)> windowSegments = new(updatesPerWindow);
-            var windowTracker = new UpdateWindowTracker<TSeg>(updateWindowFillPercentage);
+            List<(int Type, Segment<T> Segment, int SegmentIndex)> windowSegments = new(updatesPerWindow);
+            var windowTracker = new UpdateWindowTracker<T, Segment<T>>(updateWindowFillPercentage);
             var random = new Random(seed);
 
-            var fragTracker = new FragmentationTracker<TSeg>(suballocator.Length, fragmentBucketLength);
+            var fragTracker = new FragmentationTracker<T, Segment<T>>(suballocator.Length, fragmentBucketLength);
 
             Console.WriteLine($"Running {name} ({tag})...");
 
@@ -117,7 +117,7 @@ namespace PerfTest
 
                     var lengthToRent = random.Next(minSegmentLen, maxSegmentLen + 1);
 
-                    if (suballocator.TryRent(lengthToRent, out var segment) == false)
+                    if (suballocator.TryRentSegment(lengthToRent, out var segment) == false)
                     {
                         outOfMemory = true;
                         break;
@@ -132,7 +132,7 @@ namespace PerfTest
                     countRentedWindow++;
 
                     windowTracker.TrackRental(segment);
-                    fragTracker.TrackUpdate(segment);
+                    fragTracker.TrackRental(segment);
 
                     // After every N rentals, "apply" them; coalesce into update windows.
                     if (countRentedWindow >= updatesPerWindow)
@@ -147,15 +147,14 @@ namespace PerfTest
                             var removed = new List<(int SegmentIndex, long Length)>();
                             foreach (var seg in fragmented)
                             {
+                                windowTracker.TrackReturn(seg);
                                 fragTracker.TrackReturn(seg);
-                                if (fragTracker.GetFragmentedSegments(.1).Where(s => s.RangeOffset == seg.RangeOffset).Any())
-                                    Debugger.Break();
 
                                 var index = segmentsByOffset[seg.RangeOffset];
 
                                 windowSegments.Add((3, seg, index));
 
-                                suballocator.Return(seg);
+                                suballocator.ReturnSegment(seg);
 
                                 segmentsByOffset.Remove(seg.RangeOffset);
                                 removed.Add((index, seg.Length));
@@ -163,7 +162,7 @@ namespace PerfTest
 
                             foreach (var removal in removed)
                             {
-                                if (suballocator.TryRent(removal.Length, out var movedSegment) == false)
+                                if (suballocator.TryRentSegment(removal.Length, out var movedSegment) == false)
                                 {
                                     outOfMemory = true;
                                     break;
@@ -174,7 +173,7 @@ namespace PerfTest
                                 segmentsByOffset[movedSegment.RangeOffset] = removal.SegmentIndex;
                                 segments[removal.SegmentIndex] = movedSegment;
                                 windowTracker.TrackRental(movedSegment);
-                                fragTracker.TrackUpdate(movedSegment);
+                                fragTracker.TrackRental(movedSegment);
                             }
 
                             if (outOfMemory)
@@ -200,7 +199,7 @@ namespace PerfTest
 
                             for (int i = 0; i < windowSegments.Count; i++)
                             {
-                                var offsetX = ((long)windowSegments[i].Segment.PSegment - (long)suballocator.PElems) / Unsafe.SizeOf<TSeg>() * imageScale;
+                                var offsetX = ((long)windowSegments[i].Segment.PSegment - (long)suballocator.PElems) / Unsafe.SizeOf<T>() * imageScale;
                                 var width = windowSegments[i].Segment.Length * imageScale;
 
                                 // The value of the pixel is defined by the last window to overlap it.
@@ -261,9 +260,10 @@ namespace PerfTest
                         segmentsByOffset[segments[swapIndex].RangeOffset] = swapIndex;
                     }
 
+                    windowTracker.TrackReturn(segment);
                     fragTracker.TrackReturn(segment);
                     segmentsByOffset.Remove(segment.RangeOffset);
-                    suballocator.Return(segment);
+                    suballocator.ReturnSegment(segment);
 
                     lengthRentedCurrent -= segment.Length;
                 }

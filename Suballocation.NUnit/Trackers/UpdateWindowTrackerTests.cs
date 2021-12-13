@@ -9,12 +9,12 @@ namespace Suballocation.NUnit
         [Test]
         public unsafe void CombinedTest()
         {
-            var tracker = new UpdateWindowTracker<int>(.51);
+            var tracker = new UpdateWindowTracker<int, Segment<int>>(.51);
 
             long offset = 0;
             for (int i = 1; i <= 255; i++)
             {
-                tracker.TrackRental(new NativeMemorySegment<int, EmptyStruct>() { PBuffer = (int*)1234, PSegment = (int*)offset, Length = i });
+                tracker.TrackRental(new Segment<int>() { PBuffer = (int*)1234, PSegment = (int*)offset, Length = i });
                 offset += (long)(i * sizeof(int) * 1.5); // Add padding of half segment length.
             }
 
@@ -26,12 +26,12 @@ namespace Suballocation.NUnit
         [Test]
         public unsafe void NonCombinedTest()
         {
-            var tracker = new UpdateWindowTracker<int>(.51);
+            var tracker = new UpdateWindowTracker<int, Segment<int>>(.51);
 
             long offset = 0;
             for (int i = 1; i <= 255; i++)
             {
-                tracker.TrackRental(new NativeMemorySegment<int, EmptyStruct>() { PBuffer = (int*)1234, PSegment = (int*)offset, Length = i });
+                tracker.TrackRental(new Segment<int>() { PBuffer = (int*)1234, PSegment = (int*)offset, Length = i });
                 offset += i * sizeof(int) * 4; // Add the same length * 3 as padding between this and the next update window.
             }
 
@@ -43,11 +43,11 @@ namespace Suballocation.NUnit
         [Test]
         public unsafe void ClearTest()
         {
-            var tracker = new UpdateWindowTracker<int>(.51);
+            var tracker = new UpdateWindowTracker<int, Segment<int>>(.51);
 
             for (int i = 1; i <= 255; i++)
             {
-                tracker.TrackRental(new NativeMemorySegment<int, EmptyStruct>() { PBuffer = (int*)1234, PSegment = (int*)(i * 2), Length = i });
+                tracker.TrackRental(new Segment<int>() { PBuffer = (int*)1234, PSegment = (int*)(i * 2), Length = i });
             }
 
             tracker.Clear();

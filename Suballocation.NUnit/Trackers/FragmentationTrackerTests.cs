@@ -13,25 +13,25 @@ namespace Suballocation.NUnit
         {
             var pElems = (int*)NativeMemory.Alloc(1024, sizeof(int));
 
-            var tracker = new FragmentationTracker<int, int>(1024, 10);
+            var tracker = new FragmentationTracker<int, Segment<int>>(1024, 10);
 
             for (int i = 100; i < 1000; i++)
             {
-                tracker.TrackRental(new NativeMemorySegment<int, int>() { PBuffer = pElems, PSegment = pElems + i, Length = 1, Tag = i * -1 });
+                tracker.TrackRental(new Segment<int>() { PBuffer = pElems, PSegment = pElems + i, Length = 1 });
             }
 
             Assert.IsEmpty(tracker.GetFragmentedSegments(.1));
 
-            tracker.TrackReturn(new NativeMemorySegment<int, int>() { PBuffer = pElems, PSegment = pElems + 500, Length = 1 });
+            tracker.TrackReturn(new Segment<int>() { PBuffer = pElems, PSegment = pElems + 500, Length = 1 });
 
             Assert.AreEqual(9, tracker.GetFragmentedSegments(.1).Count());
 
-            tracker.TrackReturn(new NativeMemorySegment<int, int>() { PBuffer = pElems, PSegment = pElems + 510, Length = 1 });
+            tracker.TrackReturn(new Segment<int>() { PBuffer = pElems, PSegment = pElems + 510, Length = 1 });
 
             Assert.AreEqual(18, tracker.GetFragmentedSegments(.1).Count());
 
-            tracker.TrackReturn(new NativeMemorySegment<int, int>() { PBuffer = pElems, PSegment = pElems + 110, Length = 1 });
-            tracker.TrackReturn(new NativeMemorySegment<int, int>() { PBuffer = pElems, PSegment = pElems + 120, Length = 1 });
+            tracker.TrackReturn(new Segment<int>() { PBuffer = pElems, PSegment = pElems + 110, Length = 1 });
+            tracker.TrackReturn(new Segment<int>() { PBuffer = pElems, PSegment = pElems + 120, Length = 1 });
 
             Assert.AreEqual(36, tracker.GetFragmentedSegments(.1).Count());
         }
@@ -41,25 +41,25 @@ namespace Suballocation.NUnit
         {
             var pElems = (int*)NativeMemory.Alloc(1024, sizeof(int));
 
-            var tracker = new FragmentationTracker<int, int>(1024, 10);
+            var tracker = new FragmentationTracker<int, Segment<int>>(1024, 10);
 
             for (int i = 100; i < 1000; i+=5)
             {
-                tracker.TrackRental(new NativeMemorySegment<int, int>() { PBuffer = pElems, PSegment = pElems + i, Length = 5, Tag = i * -1 });
+                tracker.TrackRental(new Segment<int>() { PBuffer = pElems, PSegment = pElems + i, Length = 5 });
             }
 
             Assert.IsEmpty(tracker.GetFragmentedSegments(.1));
 
-            tracker.TrackReturn(new NativeMemorySegment<int, int>() { PBuffer = pElems, PSegment = pElems + 500, Length = 5 });
+            tracker.TrackReturn(new Segment<int>() { PBuffer = pElems, PSegment = pElems + 500, Length = 5 });
 
             Assert.AreEqual(1, tracker.GetFragmentedSegments(.1).Count());
 
-            tracker.TrackReturn(new NativeMemorySegment<int, int>() { PBuffer = pElems, PSegment = pElems + 510, Length = 5 });
+            tracker.TrackReturn(new Segment<int>() { PBuffer = pElems, PSegment = pElems + 510, Length = 5 });
 
             Assert.AreEqual(2, tracker.GetFragmentedSegments(.50).Count());
 
-            tracker.TrackReturn(new NativeMemorySegment<int, int>() { PBuffer = pElems, PSegment = pElems + 110, Length = 5 });
-            tracker.TrackReturn(new NativeMemorySegment<int, int>() { PBuffer = pElems, PSegment = pElems + 120, Length = 5 });
+            tracker.TrackReturn(new Segment<int>() { PBuffer = pElems, PSegment = pElems + 110, Length = 5 });
+            tracker.TrackReturn(new Segment<int>() { PBuffer = pElems, PSegment = pElems + 120, Length = 5 });
 
             Assert.AreEqual(4, tracker.GetFragmentedSegments(.50).Count());
 
@@ -71,11 +71,11 @@ namespace Suballocation.NUnit
         {
             var pElems = (int*)NativeMemory.Alloc(1024, sizeof(int));
 
-            var tracker = new FragmentationTracker<int, int>(1024, 10);
+            var tracker = new FragmentationTracker<int, Segment<int>>(1024, 10);
 
             for (int i = 100; i < 1000; i++)
             {
-                tracker.TrackRental(new NativeMemorySegment<int, int>(pElems, pElems + i, 1));
+                tracker.TrackRental(new Segment<int>(pElems, pElems + i, 1));
             }
 
             tracker.Clear();

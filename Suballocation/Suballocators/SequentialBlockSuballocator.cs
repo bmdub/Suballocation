@@ -3,23 +3,13 @@ using System.Buffers;
 
 namespace Suballocation.Suballocators;
 
-public unsafe class SequentialBlockSuballocator<TSeg> : SequentialBlockSuballocator<TSeg, EmptyStruct>, ISuballocator<TSeg> where TSeg : unmanaged
-{
-    public SequentialBlockSuballocator(long length, long blockLength = 1) : base(length, blockLength) { }
-
-    public SequentialBlockSuballocator(TSeg* pElems, long length, long blockLength = 1) : base(pElems, length, blockLength) { }
-
-    public SequentialBlockSuballocator(Memory<TSeg> data, long blockLength = 1) : base(data, blockLength) { }
-}
-
 /// <summary>
 /// A sequential-fit suballocator that returns the nearest free next segment that is large enough to fulfill the request.
 /// </summary>
-/// <typeparam name="TSeg">A blittable element type that defines the units to allocate.</typeparam>
-/// <typeparam name="TTag">Type to be tied to each segment, as a separate entity from the segment contents.</typeparam>
-public unsafe class SequentialBlockSuballocator<TSeg, TTag> : ISuballocator<TSeg, TTag>, IDisposable where TSeg : unmanaged
+/// <typeparam name="T">A blittable element type that defines the units to allocate.</typeparam>
+public unsafe class SequentialBlockSuballocator<T> : ISuballocator<T>, IDisposable where T : unmanaged
 {
-    private readonly TSeg* _pElems;
+    private readonly T* _pElems;
     private readonly BigArray<IndexEntry> _index;
     private readonly long _blockLength;
     private readonly long _blockCount;
@@ -42,13 +32,13 @@ public unsafe class SequentialBlockSuballocator<TSeg, TTag> : ISuballocator<TSeg
         _blockCount = length / blockLength;
         if (length % blockLength > 0) _blockCount++;
         _index = new BigArray<IndexEntry>(_blockCount);
-        _pElems = (TSeg*)NativeMemory.Alloc((nuint)length, (nuint)Unsafe.SizeOf<TSeg>());
-        GC.AddMemoryPressure(length * Unsafe.SizeOf<TSeg>());
+        _pElems = (T*)NativeMemory.Alloc((nuint)length, (nuint)Unsafe.SizeOf<T>());
+        GC.AddMemoryPressure(length * Unsafe.SizeOf<T>());
         _privatelyOwned = true;
 
         InitIndexes();
 
-        SuballocatorTable<TSeg, TTag>.Register(this);
+        SuballocatorTable<T>.Register(this);
     }
 
     /// <summary>Creates a suballocator instance using a preallocated backing buffer.</summary>
@@ -57,7 +47,7 @@ public unsafe class SequentialBlockSuballocator<TSeg, TTag> : ISuballocator<TSeg
     /// <param name="blockLength">Element length of the smallest desired block size used internally for any rented segment.</param>
     /// <exception cref="ArgumentOutOfRangeException"></exception>
     /// <exception cref="ArgumentNullException"></exception>
-    public SequentialBlockSuballocator(TSeg* pElems, long length, long blockLength = 1)
+    public SequentialBlockSuballocator(T* pElems, long length, long blockLength = 1)
     {
         if (pElems == null) throw new ArgumentNullException(nameof(pElems));
         if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length), $"Buffer length must be greater than 0.");
@@ -72,14 +62,14 @@ public unsafe class SequentialBlockSuballocator<TSeg, TTag> : ISuballocator<TSeg
 
         InitIndexes();
 
-        SuballocatorTable<TSeg, TTag>.Register(this);
+        SuballocatorTable<T>.Register(this);
     }
 
     /// <summary>Creates a suballocator instance using a preallocated backing buffer.</summary>
     /// <param name="data">A region of memory to use as the backing buffer for this suballocator.</param>
     /// <param name="blockLength">Element length of the smallest desired block size used internally for any rented segment.</param>
     /// <exception cref="ArgumentOutOfRangeException"></exception>
-    public SequentialBlockSuballocator(Memory<TSeg> data, long blockLength = 1)
+    public SequentialBlockSuballocator(Memory<T> data, long blockLength = 1)
     {
         if (blockLength <= 0 || blockLength > int.MaxValue) throw new ArgumentOutOfRangeException(nameof(blockLength), $"Block length must be greater than 0 and less than Int32.Max.");
 
@@ -89,16 +79,16 @@ public unsafe class SequentialBlockSuballocator<TSeg, TTag> : ISuballocator<TSeg
         if (data.Length % blockLength > 0) _blockCount++;
         _index = new BigArray<IndexEntry>(_blockCount);
         _memoryHandle = data.Pin();
-        _pElems = (TSeg*)_memoryHandle.Pointer;
+        _pElems = (T*)_memoryHandle.Pointer;
 
         InitIndexes();
 
-        SuballocatorTable<TSeg, TTag>.Register(this);
+        SuballocatorTable<T>.Register(this);
     }
 
-    public long UsedBytes => Used * Unsafe.SizeOf<TSeg>();
+    public long UsedBytes => Used * Unsafe.SizeOf<T>();
 
-    public long LengthBytes => Length * Unsafe.SizeOf<TSeg>();
+    public long LengthBytes => Length * Unsafe.SizeOf<T>();
 
     public long FreeBytes { get => LengthBytes - UsedBytes; }
 
@@ -110,7 +100,7 @@ public unsafe class SequentialBlockSuballocator<TSeg, TTag> : ISuballocator<TSeg
 
     public long Free { get => Length - Used; }
 
-    public TSeg* PElems => _pElems;
+    public T* PElems => _pElems;
 
     public byte* PBytes => (byte*)_pElems;
 
@@ -123,9 +113,9 @@ public unsafe class SequentialBlockSuballocator<TSeg, TTag> : ISuballocator<TSeg
         }
     }
 
-    public bool TryRent(long length, out NativeMemorySegment<TSeg, TTag> segment, TTag tag = default!)
+    public bool TryRent(long length, out T* segmentPtr, out long lengthActual)
     {
-        if (_disposed) throw new ObjectDisposedException(nameof(SequentialBlockSuballocator<TSeg, TTag>));
+        if (_disposed) throw new ObjectDisposedException(nameof(SequentialBlockSuballocator<T>));
         if (length <= 0 || length > int.MaxValue * _blockLength)
             throw new ArgumentOutOfRangeException(nameof(length), $"{nameof(length)} must be greater than 0 and less than Int32.Max times the block length.");
 
@@ -175,14 +165,15 @@ public unsafe class SequentialBlockSuballocator<TSeg, TTag> : ISuballocator<TSeg
                         header = header with { BlockCount = blockCount };
                     }
 
-                    header = header with { Occupied = true, Tag = tag };
+                    header = header with { Occupied = true };
 
                     Allocations++;
                     Used += blockCount * _blockLength;
 
                     _lastIndex = blockIndex;
 
-                    segment = new NativeMemorySegment<TSeg, TTag>(_pElems, _pElems + blockIndex * _blockLength, blockCount * _blockLength, tag);
+                    segmentPtr = _pElems + blockIndex * _blockLength;        
+                    lengthActual = blockCount * _blockLength;
                     return true;
                 }
             }
@@ -199,36 +190,19 @@ public unsafe class SequentialBlockSuballocator<TSeg, TTag> : ISuballocator<TSeg
             }
         }
 
-        segment = default;
+        segmentPtr = default;
+        lengthActual = 0;
         return false;
     }
 
-    public TTag GetTag(TSeg* segmentPtr)
-    {
-        if (_disposed) throw new ObjectDisposedException(nameof(SequentialBlockSuballocator<TSeg, TTag>));
-
-        long index = segmentPtr - _pElems;
-
-        long blockIndex = index / _blockLength;
-
-        ref IndexEntry header = ref _index[blockIndex];
-
-        if (header.Occupied == false)
-        {
-            throw new InvalidOperationException($"Rented segment not found.");
-        }
-
-        return header.Tag;
-    }
-
-    public void Return(NativeMemorySegment<TSeg, TTag> segment)
+    public void Return(Segment<T> segment)
     {
         Return(segment.PSegment);
     }
 
-    public unsafe void Return(TSeg* segmentPtr)
+    public unsafe void Return(T* segmentPtr)
     {
-        if (_disposed) throw new ObjectDisposedException(nameof(SequentialBlockSuballocator<TSeg, TTag>));
+        if (_disposed) throw new ObjectDisposedException(nameof(SequentialBlockSuballocator<T>));
 
         long index = segmentPtr - _pElems;
 
@@ -256,19 +230,19 @@ public unsafe class SequentialBlockSuballocator<TSeg, TTag> : ISuballocator<TSeg
         InitIndexes();
     }
 
-    public IEnumerator<NativeMemorySegment<TSeg, TTag>> GetEnumerator() =>
+    public IEnumerator<(IntPtr SegmentPtr, long Length)> GetEnumerator() =>
         GetOccupiedSegments().GetEnumerator();
 
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
-    private IEnumerable<NativeMemorySegment<TSeg, TTag>> GetOccupiedSegments()
+    private IEnumerable<(IntPtr SegmentPtr, long Length)> GetOccupiedSegments()
     {
         long index = 0;
 
         IndexEntry GetEntry() => _index[index];
 
-        NativeMemorySegment<TSeg, TTag> GenerateSegment(long blockCount, TTag tag) =>
-            new NativeMemorySegment<TSeg, TTag>(_pElems, _pElems + index * _blockLength, blockCount * _blockLength, tag);
+        (IntPtr SegmentPtr, long Length) GenerateSegment(long blockCount) =>
+            ((IntPtr)(_pElems + index * _blockLength), blockCount * _blockLength);
 
         while (index < _blockCount)
         {
@@ -276,7 +250,7 @@ public unsafe class SequentialBlockSuballocator<TSeg, TTag> : ISuballocator<TSeg
 
             if (entry.Occupied == true)
             {
-                yield return GenerateSegment(entry.BlockCount, entry.Tag);
+                yield return GenerateSegment(entry.BlockCount);
             }
 
             index += entry.BlockCount;
@@ -291,14 +265,14 @@ public unsafe class SequentialBlockSuballocator<TSeg, TTag> : ISuballocator<TSeg
             {
             }
 
-            SuballocatorTable<TSeg, TTag>.Deregister(this);
+            SuballocatorTable<T>.Deregister(this);
 
             _memoryHandle.Dispose();
 
             if (_privatelyOwned)
             {
                 NativeMemory.Free(_pElems);
-                GC.RemoveMemoryPressure(Length * Unsafe.SizeOf<TSeg>());
+                GC.RemoveMemoryPressure(Length * Unsafe.SizeOf<T>());
             }
 
             _disposed = true;
@@ -320,10 +294,8 @@ public unsafe class SequentialBlockSuballocator<TSeg, TTag> : ISuballocator<TSeg
     readonly struct IndexEntry
     {
         private readonly uint _general;
-        private readonly TTag _tag;
 
         public bool Occupied { get => (_general & 0x10000000u) != 0; init => _general = value ? (_general | 0x10000000u) : (_general & 0xEFFFFFFFu); }
         public int BlockCount { get => (int)(_general & 0xEFFFFFFFu); init => _general = (_general & 0x10000000u) | ((uint)value & 0xEFFFFFFFu); }
-        public TTag Tag { get => _tag; init => _tag = value; }
     }
 }

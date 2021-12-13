@@ -25,13 +25,7 @@ public unsafe interface ISuballocator : IDisposable
 /// <summary>
 /// Manages slices of memory segments from a fixed/large continguous memory buffer.
 /// </summary>
-public unsafe interface ISuballocator<TSeg> : ISuballocator<TSeg, EmptyStruct> where TSeg : unmanaged
-{ }
-
-/// <summary>
-/// Manages slices of memory segments from a fixed/large continguous memory buffer.
-/// </summary>
-public unsafe interface ISuballocator<TSeg, TTag> : ISuballocator, IEnumerable<NativeMemorySegment<TSeg, TTag>> where TSeg : unmanaged
+public unsafe interface ISuballocator<T> : ISuballocator, IEnumerable<(IntPtr SegmentPtr, long Length)> where T : unmanaged
 {
     /// <summary>The total unit count of the outstanding rented memory segments.</summary>
     public long Used { get; }
@@ -43,44 +37,36 @@ public unsafe interface ISuballocator<TSeg, TTag> : ISuballocator, IEnumerable<N
     public long Free { get; }
 
     /// <summary>Pointer to the start of the pinned backing buffer.</summary>
-    public TSeg* PElems { get; }
+    public T* PElems { get; }
 
     /// <summary>Returns a free segment of memory of the desired length.</summary>
     /// <param name="length">The unit length of the segment requested.</param>
-    /// <param name="segment">A rented segment that must be returned to the allocator in order to free the memory for subsequent usage.</param>
-    /// <param name="tag">Optional tag item to be associated with each segment (but is not used within the segment).</param>
+    /// <param name="segmentPtr">A pointer to a rented segment that must be returned to the allocator in order to free the memory for subsequent usage.</param>
+    /// <param name="lengthActual">The length of the rented segment returned, which may be >= the requested length.</param>
     /// <returns>True if successful; False if free space could not be found for this segment.</returns>
-    public bool TryRent(long length, out NativeMemorySegment<TSeg, TTag> segment, TTag tag = default!);
-
-    /// <summary>Returns the tag associated with the given rented segment.</summary>
-    /// <param name="segmentPtr">The pointer to a rented segment of memory from this allocator.</param>
-    public TTag GetTag(TSeg* segmentPtr);
-
-    /// <summary>Disposes of the given rented memory segment, and makes the memory available for rent once again. Could be called in place of Dispose() on a segment.</summary>
-    /// <param name="segment">A previously rented segment of memory from this allocator.</param>
-    public void Return(NativeMemorySegment<TSeg, TTag> segment);
+    public bool TryRent(long length, out T* segmentPtr, out long lengthActual);
 
     /// <summary>Disposes of the given rented memory segment, and makes the memory available for rent once again.</summary>
     /// <param name="segmentPtr">The pointer to a rented segment of memory from this allocator.</param>
-    public void Return(TSeg* segmentPtr);
+    public void Return(T* segmentPtr);
 
     /// <summary>Clears all records of all outstanding rented segments, returning the allocator to an initial state. 
     /// NOTE: Behavior is undefined if any outstanding segment contents are modified after Clear() is called.</summary>
     public void Clear();
 }
 
-public static class ISuballocatorExtensions
+public static class SuballocatorExtensions
 {
     /// <summary>Returns a free segment of memory of the desired length.</summary>
     /// <param name="length">The unit length of the segment requested.</param>
-    /// <returns>A rented segment that must be returned to the allocator in order to free the memory for subsequent usage.</returns>
-    public static NativeMemorySegment<TSeg, TTag> Rent<TSeg, TTag>(this ISuballocator<TSeg, TTag> suballocator, long length = 1, TTag tag = default!) where TSeg : unmanaged
+    /// <returns>A pointer to a rented segment that must be returned to the allocator in order to free the memory for subsequent usage.</returns>
+    public static unsafe T* Rent<T>(this ISuballocator<T> suballocator, long length = 1) where T : unmanaged
     {
-        if (suballocator.TryRent(length, out var segment, tag) == false)
+        if (suballocator.TryRent(length, out var segmentPtr, out _) == false)
         {
             throw new OutOfMemoryException();
         }
 
-        return segment;
+        return segmentPtr;
     }
 }

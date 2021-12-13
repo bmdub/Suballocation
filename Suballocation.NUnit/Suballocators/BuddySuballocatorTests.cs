@@ -50,7 +50,7 @@ namespace Suballocation.NUnit
             {
                 for (int i = 0; i < power; i++)
                 {
-                    var segment = allocator.Rent(1L << i);
+                    var segment = allocator.RentSegment(1L << i);
                     Assert.AreEqual(1L << i, segment.Length);
                 }
 
@@ -68,11 +68,11 @@ namespace Suballocation.NUnit
 
             using (var allocator = new BuddySuballocator<int>(length - 1, 1))
             {
-                List<NativeMemorySegment<int, EmptyStruct>> segments = new();
+                List<Segment<int>> segments = new();
 
                 for (int i = 0; i < power; i++)
                 {
-                    var segment = allocator.Rent(1L << i);
+                    var segment = allocator.RentSegment(1L << i);
                     segment.AsSpan().Fill(i);
                     segments.Add(segment);
                 }
@@ -98,14 +98,14 @@ namespace Suballocation.NUnit
 
             using (var suballocator = new BuddySuballocator<int>(length, 32))
             {
-                List<NativeMemorySegment<int, EmptyStruct>> segments = new();
+                List<Segment<int>> segments = new();
 
                 for (int i = 0; i < length / 32; i++)
                 {
-                    segments.Add(suballocator.Rent(1));
+                    segments.Add(suballocator.RentSegment(1));
                 }
 
-                Assert.Throws<OutOfMemoryException>(() => suballocator.Rent(1));
+                Assert.Throws<OutOfMemoryException>(() => suballocator.RentSegment(1));
 
                 Assert.AreEqual(0, suballocator.FreeBytes);
                 Assert.AreEqual(0, suballocator.Free);
@@ -129,11 +129,11 @@ namespace Suballocation.NUnit
 
             using (var allocator = new BuddySuballocator<int>(length - 1, 1))
             {
-                List<NativeMemorySegment<int, EmptyStruct>> segments = new();
+                List<Segment<int>> segments = new();
 
                 for (int i = 0; i < power; i++)
                 {
-                    segments.Add(allocator.Rent(1L << i));
+                    segments.Add(allocator.RentSegment(1L << i));
                 }
 
                 foreach (var segment in segments)
@@ -155,11 +155,11 @@ namespace Suballocation.NUnit
 
             using (var allocator = new BuddySuballocator<int>(length - 1, 1))
             {
-                List<NativeMemorySegment<int, EmptyStruct>> segments = new();
+                List<Segment<int>> segments = new();
 
                 for (int i = 0; i < power; i++)
                 {
-                    segments.Add(allocator.Rent(1L << i));
+                    segments.Add(allocator.RentSegment(1L << i));
                 }
 
                 segments.Reverse();
@@ -181,21 +181,21 @@ namespace Suballocation.NUnit
 
             using (var suballocator = new BuddySuballocator<int>(length, 1))
             {
-                Assert.Throws<ArgumentOutOfRangeException>(() => suballocator.Rent(0));
-                Assert.Throws<ArgumentOutOfRangeException>(() => suballocator.Rent(-1));
+                Assert.Throws<ArgumentOutOfRangeException>(() => suballocator.RentSegment(0));
+                Assert.Throws<ArgumentOutOfRangeException>(() => suballocator.RentSegment(-1));
 
-                var segment = suballocator.Rent(64);
+                var segment = suballocator.RentSegment(64);
 
                 suballocator.Return(segment);
 
-                Assert.Throws<OutOfMemoryException>(() => suballocator.Rent(65));
+                Assert.Throws<OutOfMemoryException>(() => suballocator.RentSegment(65));
 
                 for (int i = 0; i < length; i++)
                 {
-                    suballocator.Rent(1);
+                    suballocator.RentSegment(1);
                 }
 
-                Assert.Throws<OutOfMemoryException>(() => suballocator.Rent(1));
+                Assert.Throws<OutOfMemoryException>(() => suballocator.RentSegment(1));
             }
         }
 
@@ -206,16 +206,16 @@ namespace Suballocation.NUnit
 
             using (var allocator = new BuddySuballocator<int>(length, 1))
             {
-                allocator.Rent(64);
+                allocator.RentSegment(64);
 
                 allocator.Clear();
 
-                allocator.Rent(64);
+                allocator.RentSegment(64);
             }
         }
 
         [Test]
-        public void GetEnumeratorTest()
+        public unsafe void GetEnumeratorTest()
         {
             int power = 24;
 
@@ -223,19 +223,19 @@ namespace Suballocation.NUnit
 
             using (var suballocator = new BuddySuballocator<int>(length - 1, 1))
             {
-                HashSet<NativeMemorySegment<int, EmptyStruct>> segments = new();
+                HashSet<(IntPtr SegmentPtr, long Length)> segments = new();
 
                 for (int i = 0; i < power; i++)
                 {
-                    var segment = suballocator.Rent(1L << i);
-                    segments.Add(segment);
+                    suballocator.TryRent(1L << i, out var ptr, out _);
+                    segments.Add(((IntPtr)ptr, 1L << i));
                 }
 
                 int returnCount = 0;
                 var setList = segments.ToList();
                 for (int i = 0; i < setList.Count; i += 3)
                 {
-                    suballocator.Return(setList[i]);
+                    suballocator.Return((int*)setList[i].SegmentPtr);
                     returnCount++;
                 }
 
