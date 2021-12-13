@@ -27,9 +27,9 @@ public partial class Program
         // For instantiating suballocators, one at a time.
         IEnumerable<ISuballocator<T>> GetSuballocators<T>(long length, long blockLength) where T : unmanaged
         {
-            //yield return new SequentialBlockSuballocator<T>(length, blockLength);
+            yield return new SequentialBlockSuballocator<T>(length, blockLength);
             yield return new BuddySuballocator<T>(length, blockLength);
-            //yield return new DirectionalBlockSuballocator<T>(length, blockLength);
+            yield return new DirectionalBlockSuballocator<T>(length, blockLength);
             //yield return new new ArrayPoolSuballocator<SomeStruct>(length);
             //yield return new new MemoryPoolSuballocator<SomeStruct>(length);
         }
@@ -51,7 +51,7 @@ public partial class Program
                             totalLengthToRent: 64_000,
                             minSegmentLenInitial: 1, minSegmentLenFinal: 1,
                             maxSegmentLenInitial: 32 * 1, maxSegmentLenFinal: 2,
-                            desiredFillPercentage: .69,
+                            desiredFillPercentage: .9,
                             youthReturnFactor: .5,
                             updateWindowFillPercentage: .21,
                             updatesPerWindow: 1,

@@ -96,13 +96,13 @@ public static class SuballocatorExtensions
     /// <returns>True if successful; False if free space could not be found for this segment.</returns>
     public static unsafe bool TryRentSegment<T>(this ISuballocator<T> suballocator, long length, out Segment<T> segment) where T : unmanaged
     {
-        if (suballocator.TryRent(length, out var segmentPtr, out _) == false)
+        if (suballocator.TryRent(length, out var segmentPtr, out var actualLength) == false)
         {
             segment = default;
             return false;
         }
 
-        segment = new Segment<T>(suballocator.PElems, segmentPtr, length);
+        segment = new Segment<T>(suballocator.PElems, segmentPtr, actualLength);
         return true;
     }
 

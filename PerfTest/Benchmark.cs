@@ -192,7 +192,7 @@ namespace PerfTest
 
                         windowTracker.Clear();
 
-                        // If there's room left, display a visual line of the new alocations / returns.
+                        // If there's room left, display a visual line of the new allocations / returns.
                         if (imageYOffset >= 0)
                         {
                             var pixels = new byte[imageWidth];
