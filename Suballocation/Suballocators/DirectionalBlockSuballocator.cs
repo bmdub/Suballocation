@@ -26,6 +26,7 @@ public unsafe class DirectionalBlockSuballocator<TSeg, TTag> : ISuballocator<TSe
     private readonly long _blockCount;
     private readonly MemoryHandle _memoryHandle;
     private readonly bool _privatelyOwned;
+    private readonly IDirectionStrategy _directionStrategy;
     private long _freeBlockBalance;
     private long _currentIndex;
     private bool _directionForward = true;
@@ -34,12 +35,14 @@ public unsafe class DirectionalBlockSuballocator<TSeg, TTag> : ISuballocator<TSe
     /// <summary>Creates a suballocator instance and allocates a buffer of the specified length.</summary>
     /// <param name="length">Element length of the buffer to allocate.</param>
     /// <param name="blockLength">Element length of the smallest desired block size used internally for any rented segment.</param>
+    /// <param name="directionStrategy">Optional strategy to use at every rental attempt to determin which direction of the buffer to search. If null, the default strategy is used.</param>
     /// <exception cref="ArgumentOutOfRangeException"></exception>
-    public DirectionalBlockSuballocator(long length, long blockLength = 1)
+    public DirectionalBlockSuballocator(long length, long blockLength = 1, IDirectionStrategy directionStrategy = null!)
     {
         if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length), $"Buffer length must be greater than 0.");
         if (blockLength <= 0 || blockLength > int.MaxValue) throw new ArgumentOutOfRangeException(nameof(blockLength), $"Block length must be greater than 0 and less than Int32.Max.");
 
+        _directionStrategy = directionStrategy ?? new DefaultDirectionStrategy();
         Length = length;
         _blockLength = blockLength;
         _blockCount = length / blockLength;
@@ -58,14 +61,16 @@ public unsafe class DirectionalBlockSuballocator<TSeg, TTag> : ISuballocator<TSe
     /// <param name="pElems">A pointer to a pinned memory buffer to use as the backing buffer for this suballocator.</param>
     /// <param name="length">Element length of the given memory buffer.</param>
     /// <param name="blockLength">Element length of the smallest desired block size used internally for any rented segment.</param>
+    /// <param name="directionStrategy">Optional strategy to use at every rental attempt to determin which direction of the buffer to search. If null, the default strategy is used.</param>
     /// <exception cref="ArgumentOutOfRangeException"></exception>
     /// <exception cref="ArgumentNullException"></exception>
-    public DirectionalBlockSuballocator(TSeg* pElems, long length, long blockLength = 1)
+    public DirectionalBlockSuballocator(TSeg* pElems, long length, long blockLength = 1, IDirectionStrategy directionStrategy = null!)
     {
         if (pElems == null) throw new ArgumentNullException(nameof(pElems));
         if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length), $"Buffer length must be greater than 0.");
         if (blockLength <= 0 || blockLength > int.MaxValue) throw new ArgumentOutOfRangeException(nameof(blockLength), $"Block length must be greater than 0 and less than Int32.Max.");
 
+        _directionStrategy = directionStrategy ?? new DefaultDirectionStrategy();
         Length = length;
         _blockLength = blockLength;
         _blockCount = length / blockLength;
@@ -81,11 +86,13 @@ public unsafe class DirectionalBlockSuballocator<TSeg, TTag> : ISuballocator<TSe
     /// <summary>Creates a suballocator instance using a preallocated backing buffer.</summary>
     /// <param name="data">A region of memory to use as the backing buffer for this suballocator.</param>
     /// <param name="blockLength">Element length of the smallest desired block size used internally for any rented segment.</param>
+    /// <param name="directionStrategy">Optional strategy to use at every rental attempt to determin which direction of the buffer to search. If null, the default strategy is used.</param>
     /// <exception cref="ArgumentOutOfRangeException"></exception>
-    public DirectionalBlockSuballocator(Memory<TSeg> data, long blockLength = 1)
+    public DirectionalBlockSuballocator(Memory<TSeg> data, long blockLength = 1, IDirectionStrategy directionStrategy = null!)
     {
         if (blockLength <= 0 || blockLength > int.MaxValue) throw new ArgumentOutOfRangeException(nameof(blockLength), $"Block length must be greater than 0 and less than Int32.Max.");
 
+        _directionStrategy = directionStrategy ?? new DefaultDirectionStrategy();
         Length = data.Length;
         _blockLength = blockLength;
         _blockCount = data.Length / blockLength;
@@ -143,18 +150,15 @@ public unsafe class DirectionalBlockSuballocator<TSeg, TTag> : ISuballocator<TSe
         long initialIndex = _currentIndex;
         long initialBalance = _freeBlockBalance;
 
-        // Decide which direction to search, based on current index distance from either end, and the amount of free space left on either side.
+        // Decide which direction to search next.
         bool directionForwardPrev = _directionForward;
         _directionForward = false;
-        var distanceFromCenter = (((_currentIndex + 1) / (double)_blockCount) - .5) * 2;
-        var balance = _freeBlockBalance / (double)_blockCount;
-        var dir = directionForwardPrev ? 1 : -1;
-       // Console.WriteLine($"{balance}, {distanceFromCenter}, {dir}");
-        //distanceFromCenter = Math.Sign(distanceFromCenter) == Math.Sign(dir) ? distanceFromCenter : 0;
-        if (balance * 1.0 + distanceFromCenter * 0.0 + dir * 0.3 >= 0) // TODO: Make configurable
-        {
-            _directionForward = true;
-        }
+
+        var headOffsetFromCenter = (((_currentIndex + 1) / (double)_blockCount) - .5) * 2;
+        var freeBalance = _freeBlockBalance / (double)_blockCount;
+        var lastDirection = directionForwardPrev ? 1 : -1;
+
+        _directionForward = _directionStrategy.GetSearchDirection(freeBalance, headOffsetFromCenter, lastDirection);
 
         // If we turn around twice whilst searching, that means we've searched the entire collection.
         int turnaroundCount = 0;
@@ -526,5 +530,25 @@ public unsafe class DirectionalBlockSuballocator<TSeg, TTag> : ISuballocator<TSe
         public int BlockCount { get => (int)(_general1 & 0xEFFFFFFFu); init => _general1 = (_general1 & 0x10000000u) | ((uint)value & 0xEFFFFFFFu); }
         public int BlockCountPrev { get => _general2; init => _general2 = value; }
         public TTag Tag { get => _tag; init => _tag = value; }
+    }
+
+    public interface IDirectionStrategy
+    {
+        /// <summary>
+        /// Returns a value indicating which direction in the buffer (higher or lower address) to search for the next free segment for rental.
+        /// </summary>
+        /// <param name="freeBalance">The balance, from -1 to 1, of free space relative to the current buffer read offset. If 1, then all free space is at a higher address; -1 if lower.</param>
+        /// <param name="headOffsetFromCenter">The current buffer read offset from the buffer center, normalized to the range: -1 to 1.</param>
+        /// <param name="lastDirection">The direction of the latest movement of the buffer reader. This value is either -1 (moved down in address) or 1 (moved up in address).</param>
+        /// <returns>True - indicating to search higher addresses, or false - indicating to search lower addresses, relative to the buffer read offset.</returns>
+        bool GetSearchDirection(double freeBalance, double headOffsetFromCenter, double lastDirection);
+    }
+
+    public class DefaultDirectionStrategy : IDirectionStrategy
+    {
+        public bool GetSearchDirection(double freeBalance, double headOffsetFromCenter, double lastDirection)
+        {
+            return freeBalance * 1.0 + headOffsetFromCenter * 0.0 + lastDirection * 0.3 >= 0;
+        }
     }
 }
