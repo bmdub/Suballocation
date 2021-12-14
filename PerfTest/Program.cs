@@ -3,12 +3,6 @@ using Suballocation.Suballocators;
 
 namespace PerfTest;
 
-//todo:
-// Sampling strategy. 
-// OptimizeHead()
-// Configurable head reset strategy
-// Configurable direction strategy with default.
-
 public partial class Program
 {
     private const int _imageWidth = 1024;
@@ -30,75 +24,86 @@ public partial class Program
             yield return new SequentialBlockSuballocator<T>(length, blockLength);
             yield return new BuddySuballocator<T>(length, blockLength);
             yield return new DirectionalBlockSuballocator<T>(length, blockLength);
-            //yield return new new ArrayPoolSuballocator<SomeStruct>(length);
-            //yield return new new MemoryPoolSuballocator<SomeStruct>(length);
         }
 
-        // Run a test for each suballocator.
-        {
-            string tag = "Random Short";
+        List<Benchmark> benchmarks = new List<Benchmark>();
 
-            var results =
-                GetSuballocators<SomeStruct>(length: 2048, blockLength: 2)
-                    .Select(suballocator =>
-                        Benchmark.Run(
-                            imageFolder: _imageFolder,
-                            name: suballocator.GetType().Name.Replace("`1", ""),
-                            tag: tag,
-                            suballocator: suballocator,
-                            seed: 0,
-                            imageWidth: _imageWidth, imageHeight: _imageHeight,
-                            totalLengthToRent: 64_000,
-                            minSegmentLenInitial: 1, minSegmentLenFinal: 1,
-                            maxSegmentLenInitial: 32 * 1, maxSegmentLenFinal: 2,
-                            desiredFillPercentage: .9,
-                            youthReturnFactor: .5,
-                            updateWindowFillPercentage: .21,
-                            updatesPerWindow: 1,
-                            defragment: true,
-                            fragmentBucketLength: 128))
-                    .ToList();
+        // Test random allocation lengths with a large buffer...
+        benchmarks.AddRange(
+            GetSuballocators<SomeStruct>(length: 1L << 23, blockLength: 32)
+                .Select(suballocator =>
+                    Benchmark.Run(
+                        imageFolder: _imageFolder,
+                        name: suballocator.GetType().Name.Replace("`1", ""),
+                        tag: "Random Large",
+                        suballocator: suballocator,
+                        seed: 0,
+                        imageWidth: _imageWidth, imageHeight: _imageHeight,
+                        totalLengthToRent: 33_000_000 * 4,
+                        minSegmentLenInitial: 1, minSegmentLenFinal: 1,
+                        maxSegmentLenInitial: 65536 * 1, maxSegmentLenFinal: 32,
+                        desiredFillPercentage: .8,
+                        youthReturnFactor: .5,
+                        updateWindowFillPercentage: 0,
+                        updatesPerWindow: 10,
+                        defragment: false,
+                        fragmentBucketLength: 0,
+                        minimumFragmentationPct: 0))
+                .ToList());
 
-            // Display results.
-            results.ShowConsole(tag);
-            results.ShowBarGraph(_imageFolder, $"{tag}.Duration", _imageWidth, _imageHeight, "Name", "Duration (ms)");
-            results.ShowPatternImages();
+        // Test random allocation lengths with a large buffer, and combine update windows...
+        benchmarks.AddRange(
+            GetSuballocators<SomeStruct>(length: 1L << 23, blockLength: 32)
+                .Select(suballocator =>
+                    Benchmark.Run(
+                        imageFolder: _imageFolder,
+                        name: suballocator.GetType().Name.Replace("`1", ""),
+                        tag: "Random Large - Window Coalesce",
+                        suballocator: suballocator,
+                        seed: 0,
+                        imageWidth: _imageWidth, imageHeight: _imageHeight,
+                        totalLengthToRent: 33_000_000 * 4,
+                        minSegmentLenInitial: 1, minSegmentLenFinal: 1,
+                        maxSegmentLenInitial: 65536 * 1, maxSegmentLenFinal: 32,
+                        desiredFillPercentage: .8,
+                        youthReturnFactor: .5,
+                        updateWindowFillPercentage: .1,
+                        updatesPerWindow: 10,
+                        defragment: false,
+                        fragmentBucketLength: 0,
+                        minimumFragmentationPct: 0))
+                .ToList());
 
-            Console.ReadKey();
-        }
+        // Test random allocation lengths with an even larger buffer, combining windows, and defragmenting...
+        benchmarks.AddRange(
+            GetSuballocators<SomeStruct>(length: 1L << 23, blockLength: 2)
+                .Select(suballocator =>
+                    Benchmark.Run(
+                        imageFolder: _imageFolder,
+                        name: suballocator.GetType().Name.Replace("`1", ""),
+                        tag: "Random Larger - Window Coalesce - Defrag",
+                        suballocator: suballocator,
+                        seed: 0,
+                        imageWidth: _imageWidth, imageHeight: _imageHeight,
+                        totalLengthToRent: 33_000_000 * 4,
+                        minSegmentLenInitial: 1, minSegmentLenFinal: 1,
+                        maxSegmentLenInitial: 65536 * 1, maxSegmentLenFinal: 32,
+                        desiredFillPercentage: .9,
+                        youthReturnFactor: .5,
+                        updateWindowFillPercentage: .21,
+                        updatesPerWindow: 10,
+                        defragment: true,
+                        fragmentBucketLength: 65536 * 8,
+                        minimumFragmentationPct: .1))
+                .ToList());
 
-        // Run a test for each suballocator.
-        {
-            string tag = "Random";
+        // Display results.
+        benchmarks.ShowConsole("Results");
+        //benchmarks.ShowBarGraph(_imageFolder, $"{tag}.Duration", _imageWidth, _imageHeight, "Name", "Duration (ms)");
+        //benchmarks.ShowBarGraph(_imageFolder, $"{tag}.UpdatesLength", _imageWidth, _imageHeight, "Name", "Updates Length (avg)");
+        benchmarks.ShowPatternImages();
 
-            var results =
-                GetSuballocators<SomeStruct>(length: 1L << 23, blockLength: 2)
-                    .Select(suballocator =>
-                        Benchmark.Run(
-                            imageFolder: _imageFolder,
-                            name: suballocator.GetType().Name.Replace("`1", ""),
-                            tag: tag,
-                            suballocator: suballocator,
-                            seed: 0,
-                            imageWidth: _imageWidth, imageHeight: _imageHeight,
-                            totalLengthToRent: 33_000_000 * 4,
-                            minSegmentLenInitial: 1, minSegmentLenFinal: 1,
-                            maxSegmentLenInitial: 65536 * 1, maxSegmentLenFinal: 32,
-                            desiredFillPercentage: .6,
-                            youthReturnFactor: .5,
-                            updateWindowFillPercentage: .21,
-                            updatesPerWindow: 10,
-                            defragment: false,
-                            fragmentBucketLength: 65536))
-                    .ToList();
-
-            // Display results.
-            results.ShowConsole(tag);
-            results.ShowBarGraph(_imageFolder, $"{tag}.Duration", _imageWidth, _imageHeight, "Name", "Duration (ms)");
-            results.ShowPatternImages();
-
-            Console.ReadKey();
-        }
+        Console.ReadKey();
     }
 
     /// <summary>

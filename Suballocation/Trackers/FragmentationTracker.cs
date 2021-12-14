@@ -38,7 +38,7 @@ public class FragmentationTracker<TElem, TSeg> : ISegmentTracker<TElem, TSeg> wh
     }
 
     /// <summary>Searches the collection for segments that are fragmented, and returns them, unordered.</summary>
-    /// <param name="minimumFragmentationPct">The fragmentation threshold at which segments are deemed fragmented.</param>
+    /// <param name="minimumFragmentationPct">The fragmentation threshold, from 0 to 1, at which segments are deemed fragmented.</param>
     /// <returns>The segments that are found to be fragmented.</returns>
     public IEnumerable<TSeg> GetFragmentedSegments(double minimumFragmentationPct)
     {

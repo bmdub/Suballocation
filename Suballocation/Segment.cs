@@ -26,9 +26,9 @@ public unsafe readonly record struct Segment<T> : ISegment<T> where T : unmanage
         _length = length;
     }
 
-    public T* PBuffer { get => (T*)_bufferPtr; init => _bufferPtr = (IntPtr)value; }
+    public T* BufferPtr { get => (T*)_bufferPtr; init => _bufferPtr = (IntPtr)value; }
 
-    public unsafe T* PSegment { get => (T*)_segmentPtr; init => _segmentPtr = (IntPtr)value; }
+    public unsafe T* SegmentPtr { get => (T*)_segmentPtr; init => _segmentPtr = (IntPtr)value; }
 
     public long Length { get => _length; init => _length = value; }
 
@@ -49,9 +49,9 @@ public unsafe readonly record struct Segment<T> : ISegment<T> where T : unmanage
         }
     }
 
-    public void* PWindowBytes { get => (void*)_segmentPtr; }
+    public void* WindowBytesPtr { get => (void*)_segmentPtr; }
 
-    public void* PBufferBytes { get => (void*)_bufferPtr; }
+    public void* BufferBytesPtr { get => (void*)_bufferPtr; }
 
     public long LengthBytes => _length * Unsafe.SizeOf<T>();
 
@@ -84,7 +84,7 @@ public unsafe readonly record struct Segment<T> : ISegment<T> where T : unmanage
 
     public void Dispose()
     {
-        Suballocator?.Return(PSegment);
+        Suballocator?.Return(SegmentPtr);
     }
 }
 
@@ -110,7 +110,7 @@ public static class SuballocatorExtensions
     /// <param name="segment">A previously rented segment of memory from this allocator.</param>
     public static unsafe void ReturnSegment<T>(this ISuballocator<T> suballocator, Segment<T> segment) where T : unmanaged
     {
-        suballocator.Return(segment.PSegment);
+        suballocator.Return(segment.SegmentPtr);
     }
 
     /// <summary>Returns a free segment of memory of the desired length.</summary>

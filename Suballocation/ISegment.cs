@@ -10,10 +10,10 @@ namespace Suballocation;
 public interface ISegment : IDisposable
 {
     /// <summary>Pointer to the start of the buffer that contains this segment.</summary>
-    unsafe void* PBufferBytes { get; }
+    unsafe void* BufferBytesPtr { get; }
 
     /// <summary>Pointer to the start of the pinned segment in unmanaged memory.</summary>
-    unsafe void* PWindowBytes { get; }
+    unsafe void* WindowBytesPtr { get; }
 
     /// <summary>The total size of segment.</summary>
     long LengthBytes { get; }
@@ -28,10 +28,10 @@ public interface ISegment : IDisposable
 public unsafe interface ISegment<T> : IRangedEntry, IEnumerable<T>, ISegment where T : unmanaged
 {
     /// <summary>Pointer to the start of the buffer that contains this segment.</summary>
-    public T* PBuffer { get; }
+    public T* BufferPtr { get; }
 
     /// <summary>Pointer to the start of the pinned segment in unmanaged memory.</summary>
-    public unsafe T* PSegment { get; }
+    public unsafe T* SegmentPtr { get; }
 
     /// <summary>The total unit length of segment.</summary>
     public long Length { get; }

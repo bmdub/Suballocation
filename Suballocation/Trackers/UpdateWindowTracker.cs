@@ -16,7 +16,7 @@ public class UpdateWindowTracker<TElem, TSeg> : ISegmentTracker<TElem, TSeg> whe
 
     static unsafe UpdateWindowTracker()
     {
-        _segmentComparer = Comparer<(bool Added, TSeg Segment)>.Create((a, b) => ((IntPtr)a.Segment.PSegment).CompareTo((IntPtr)b.Segment.PSegment));
+        _segmentComparer = Comparer<(bool Added, TSeg Segment)>.Create((a, b) => ((IntPtr)a.Segment.SegmentPtr).CompareTo((IntPtr)b.Segment.SegmentPtr));
     }
 
     /// <summary></summary>
@@ -66,20 +66,20 @@ public class UpdateWindowTracker<TElem, TSeg> : ISegmentTracker<TElem, TSeg> whe
             if (window.Added == false)
             {
                 // Remove the previous matching segment, if the subsequent segment is a removal of the same segment.
-                if (finalWindows.Count > 0 && finalWindows[^1].PSegment == window.Segment.PSegment && finalWindows[^1].Length == window.Segment.Length)
+                if (finalWindows.Count > 0 && finalWindows[^1].PSegment == window.Segment.SegmentPtr && finalWindows[^1].Length == window.Segment.Length)
                 {
                     bytesFilled -= finalWindows[^1].LengthBytes;
 
                     finalWindows.RemoveAt(finalWindows.Count - 1);
                 }
             }
-            else if (finalWindows.Count > 0 && CanCombine(finalWindows[^1].PSegment, bytesFilled, window.Segment.PSegment, window.Segment.LengthBytes))
+            else if (finalWindows.Count > 0 && CanCombine(finalWindows[^1].PSegment, bytesFilled, window.Segment.SegmentPtr, window.Segment.LengthBytes))
             {
                 // We can combine the segment with the latest update window.
                 finalWindows[^1] = new UpdateWindow<TElem>()
                 {
                     PSegment = finalWindows[^1].PSegment,
-                    Length = ((long)window.Segment.PSegment + window.Segment.LengthBytes - (long)finalWindows[^1].PSegment) / Unsafe.SizeOf<TElem>()
+                    Length = ((long)window.Segment.SegmentPtr + window.Segment.LengthBytes - (long)finalWindows[^1].PSegment) / Unsafe.SizeOf<TElem>()
                 };
 
                 // Make sure to account for the case of overlap.
@@ -88,7 +88,7 @@ public class UpdateWindowTracker<TElem, TSeg> : ISegmentTracker<TElem, TSeg> whe
             else
             {
                 // Can't combine with another window; add as a new update window.
-                finalWindows.Add(new UpdateWindow<TElem>() { PSegment = window.Segment.PSegment, Length = window.Segment.Length });
+                finalWindows.Add(new UpdateWindow<TElem>() { PSegment = window.Segment.SegmentPtr, Length = window.Segment.Length });
 
                 bytesFilled = window.Segment.LengthBytes;
             }

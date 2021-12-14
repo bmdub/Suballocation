@@ -236,7 +236,7 @@ public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T
 
     public void Return(Segment<T> segment)
     {
-        Return(segment.PSegment);
+        Return(segment.SegmentPtr);
     }
 
     public unsafe void Return(T* segmentPtr)

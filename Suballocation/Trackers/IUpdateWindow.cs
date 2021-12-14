@@ -8,10 +8,10 @@ namespace Suballocation.Trackers;
 public interface IUpdateWindow
 {
     /// <summary>Pointer to the start of the buffer that contains this window.</summary>
-    unsafe void* PBufferBytes { get; }
+    unsafe void* BufferBytesPtr { get; }
 
     /// <summary>Pointer to the start of the pinned window in unmanaged memory.</summary>
-    unsafe void* PWindowBytes { get; }
+    unsafe void* WindowBytesPtr { get; }
 
     /// <summary>The total size of the window.</summary>
     long LengthBytes { get; }

@@ -20,6 +20,8 @@ public partial class OrderedRangeBucketDictionary<T> : IEnumerable<T> where T : 
     /// <param name="bucketLength">The length of the buckets in which this collection is divided into. In general, smaller buckets = faster ordered range searches; larger buckets = Faster addition/removal, less memory overhead and possibly more ideal bucket statistics.</param>
     public OrderedRangeBucketDictionary(long offsetMin, long offsetMax, long bucketLength)
     {
+        if (bucketLength <= 0) throw new ArgumentOutOfRangeException(nameof(bucketLength));
+
         _offsetMin = offsetMin;
         _offsetMax = offsetMax;
         _bucketLength = bucketLength;

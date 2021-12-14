@@ -52,9 +52,9 @@ public unsafe readonly record struct UpdateWindow<T> : IEnumerable<T>, IUpdateWi
         }
     }
 
-    public void* PWindowBytes { get => (void*)_windowPtr; }
+    public void* WindowBytesPtr { get => (void*)_windowPtr; }
 
-    public void* PBufferBytes { get => (void*)_bufferPtr; }
+    public void* BufferBytesPtr { get => (void*)_bufferPtr; }
 
     public long LengthBytes => _length * Unsafe.SizeOf<T>();
 

@@ -306,7 +306,7 @@ public unsafe class DirectionalBlockSuballocator<T> : ISuballocator<T>, IDisposa
 
     public void Return(Segment<T> segment)
     {
-        Return(segment.PSegment);
+        Return(segment.SegmentPtr);
     }
 
     public unsafe void Return(T* segmentPtr)

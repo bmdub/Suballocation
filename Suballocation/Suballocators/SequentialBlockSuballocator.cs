@@ -197,7 +197,7 @@ public unsafe class SequentialBlockSuballocator<T> : ISuballocator<T>, IDisposab
 
     public void Return(Segment<T> segment)
     {
-        Return(segment.PSegment);
+        Return(segment.SegmentPtr);
     }
 
     public unsafe void Return(T* segmentPtr)
