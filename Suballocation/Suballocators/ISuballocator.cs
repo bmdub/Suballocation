@@ -23,7 +23,7 @@ public unsafe interface ISuballocator : IDisposable
 }
 
 /// <summary>
-/// Manages slices of memory segments from a fixed/large continguous memory buffer.
+/// Manages slices of memory segments from a fixed/large contiguous memory buffer.
 /// </summary>
 public unsafe interface ISuballocator<T> : ISuballocator, IEnumerable<(IntPtr SegmentPtr, long Length)> where T : unmanaged
 {
