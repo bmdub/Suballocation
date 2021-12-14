@@ -1,4 +1,0 @@
-﻿
-using Suballocation;
-
-Console.ReadLine();
