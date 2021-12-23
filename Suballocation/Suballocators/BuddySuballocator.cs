@@ -234,6 +234,35 @@ public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T
         return true;
     }
 
+    public unsafe long GetSegmentLengthBytes(byte* segmentPtr)
+    {
+        return GetSegmentLength((T*)segmentPtr) * Unsafe.SizeOf<T>();
+    }
+
+    public unsafe long GetSegmentLength(T* segmentPtr)
+    {
+        if (_disposed) throw new ObjectDisposedException(nameof(BuddySuballocator<T>));
+
+        // Convert to block space (divide length by block size).
+        long offset = segmentPtr - _pElems;
+
+        long freeBlockIndexIndex = offset / MinBlockLength;
+
+        if (freeBlockIndexIndex < 0 || freeBlockIndexIndex >= _indexLength)
+        {
+            throw new ArgumentOutOfRangeException(nameof(segmentPtr));
+        }
+
+        ref BlockHeader header = ref _index[freeBlockIndexIndex];
+
+        if (header.Occupied == false || header.Valid == false)
+        {
+            throw new InvalidOperationException($"Attempt to get size of unrented segment.");
+        }
+
+        return header.BlockCount * MinBlockLength;
+    }
+
     unsafe long ISuballocator.Return(byte* segmentPtr)
     {
         return Return((T*)segmentPtr) * Unsafe.SizeOf<T>();

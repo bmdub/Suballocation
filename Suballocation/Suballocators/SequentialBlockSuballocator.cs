@@ -195,6 +195,29 @@ public unsafe class SequentialBlockSuballocator<T> : ISuballocator<T>, IDisposab
         return false;
     }
 
+    public unsafe long GetSegmentLengthBytes(byte* segmentPtr)
+    {
+        return GetSegmentLength((T*)segmentPtr) * Unsafe.SizeOf<T>();
+    }
+
+    public unsafe long GetSegmentLength(T* segmentPtr)
+    {
+        if (_disposed) throw new ObjectDisposedException(nameof(BuddySuballocator<T>));
+
+        long index = segmentPtr - _pElems;
+
+        long blockIndex = index / _blockLength;
+
+        ref IndexEntry header = ref _index[blockIndex];
+
+        if (header.Occupied == false)
+        {
+            throw new InvalidOperationException($"Attempt to get size of unrented segment.");
+        }
+
+        return header.BlockCount * _blockLength;
+    }
+
     unsafe long ISuballocator.Return(byte* segmentPtr)
     {
         return Return((T*)segmentPtr) * Unsafe.SizeOf<T>();

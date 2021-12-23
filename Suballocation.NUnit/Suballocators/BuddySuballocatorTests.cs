@@ -235,6 +235,8 @@ namespace Suballocation.NUnit
                 var setList = segments.ToList();
                 for (int i = 0; i < setList.Count; i += 3)
                 {
+                    Assert.AreEqual(setList[i].Length, suballocator.GetSegmentLength((int*)setList[i].SegmentPtr));
+
                     long segmentLength = suballocator.Return((int*)setList[i].SegmentPtr);
                     Assert.AreEqual(setList[i].Length, segmentLength);
                     returnCount++;

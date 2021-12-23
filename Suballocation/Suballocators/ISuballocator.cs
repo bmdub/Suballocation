@@ -21,6 +21,11 @@ public unsafe interface ISuballocator : IDisposable
     /// <summary>Pointer to the start of the pinned backing buffer.</summary>
     public byte* PBytes { get; }
 
+    /// <summary>Gets the size of the allocated memory segment pointed to by the given pointer.</summary>
+    /// <param name="segmentPtr">The pointer to a rented segment of memory from this allocator.</param>
+    /// <returns>The byte length of the allocated segment.</returns>
+    public long GetSegmentLengthBytes(byte* segmentPtr);
+
     /// <summary>Disposes of the given rented memory segment, and makes the memory available for rent once again.</summary>
     /// <param name="segmentPtr">The pointer to a rented segment of memory from this allocator.</param>
     /// <returns>The byte length of the returned segment.</returns>
@@ -44,6 +49,11 @@ public unsafe interface ISuballocator<T> : ISuballocator, IEnumerable<(IntPtr Se
     /// <summary>Pointer to the start of the pinned backing buffer.</summary>
     public T* PElems { get; }
 
+    /// <summary>Gets the length of the allocated memory segment pointed to by the given pointer.</summary>
+    /// <param name="segmentPtr">The pointer to a rented segment of memory from this allocator.</param>
+    /// <returns>The unit length of the allocated segment.</returns>
+    public long GetSegmentLength(T* segmentPtr);
+
     /// <summary>Returns a free segment of memory of the desired length.</summary>
     /// <param name="length">The unit length of the segment requested.</param>
     /// <param name="segmentPtr">A pointer to a rented segment that must be returned to the allocator in order to free the memory for subsequent usage.</param>
@@ -53,7 +63,7 @@ public unsafe interface ISuballocator<T> : ISuballocator, IEnumerable<(IntPtr Se
 
     /// <summary>Disposes of the given rented memory segment, and makes the memory available for rent once again.</summary>
     /// <param name="segmentPtr">The pointer to a rented segment of memory from this allocator.</param>
-    /// <returns>The length of the returned segment.</returns>
+    /// <returns>The unit length of the returned segment.</returns>
     public long Return(T* segmentPtr);
 
     /// <summary>Clears all records of all outstanding rented segments, returning the allocator to an initial state. 
