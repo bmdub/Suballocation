@@ -195,6 +195,11 @@ public unsafe class SequentialBlockSuballocator<T> : ISuballocator<T>, IDisposab
         return false;
     }
 
+    unsafe void ISuballocator.Return(byte* segmentPtr)
+    {
+        Return((T*)segmentPtr);
+    }
+
     public void Return(Segment<T> segment)
     {
         Return(segment.SegmentPtr);

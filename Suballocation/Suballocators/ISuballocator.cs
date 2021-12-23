@@ -20,6 +20,10 @@ public unsafe interface ISuballocator : IDisposable
 
     /// <summary>Pointer to the start of the pinned backing buffer.</summary>
     public byte* PBytes { get; }
+
+    /// <summary>Disposes of the given rented memory segment, and makes the memory available for rent once again.</summary>
+    /// <param name="segmentPtr">The pointer to a rented segment of memory from this allocator.</param>
+    public void Return(byte* segmentPtr);
 }
 
 /// <summary>

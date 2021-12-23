@@ -234,6 +234,11 @@ public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T
         return true;
     }
 
+    unsafe void ISuballocator.Return(byte* segmentPtr)
+    {
+        Return((T*)segmentPtr);
+    }
+
     public void Return(Segment<T> segment)
     {
         Return(segment.SegmentPtr);
