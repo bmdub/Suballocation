@@ -23,7 +23,8 @@ public unsafe interface ISuballocator : IDisposable
 
     /// <summary>Disposes of the given rented memory segment, and makes the memory available for rent once again.</summary>
     /// <param name="segmentPtr">The pointer to a rented segment of memory from this allocator.</param>
-    public void Return(byte* segmentPtr);
+    /// <returns>The byte length of the returned segment.</returns>
+    public long Return(byte* segmentPtr);
 }
 
 /// <summary>
@@ -52,7 +53,8 @@ public unsafe interface ISuballocator<T> : ISuballocator, IEnumerable<(IntPtr Se
 
     /// <summary>Disposes of the given rented memory segment, and makes the memory available for rent once again.</summary>
     /// <param name="segmentPtr">The pointer to a rented segment of memory from this allocator.</param>
-    public void Return(T* segmentPtr);
+    /// <returns>The length of the returned segment.</returns>
+    public long Return(T* segmentPtr);
 
     /// <summary>Clears all records of all outstanding rented segments, returning the allocator to an initial state. 
     /// NOTE: Behavior is undefined if any outstanding segment contents are modified after Clear() is called.</summary>

@@ -98,7 +98,7 @@ namespace Suballocation.NUnit
 
                 foreach (var segment in segments)
                 {
-                    suballocator.Return(segment);
+                    segment.Dispose();
                 }
 
                 Assert.AreEqual(65536 * sizeof(int), suballocator.FreeBytes);
@@ -166,7 +166,7 @@ namespace Suballocation.NUnit
 
                 var segment = suballocator.RentSegment(100);
 
-                suballocator.Return(segment);
+                segment.Dispose();
 
                 Assert.Throws<OutOfMemoryException>(() => suballocator.RentSegment(101));
 
@@ -211,7 +211,8 @@ namespace Suballocation.NUnit
                 var setList = segments.ToList();
                 for (int i = 0; i < setList.Count; i += 3)
                 {
-                    suballocator.Return((int*)setList[i].SegmentPtr);
+                    long segmentLength = suballocator.Return((int*)setList[i].SegmentPtr);
+                    Assert.AreEqual(setList[i].Length, segmentLength);
                     returnCount++;
                 }
 

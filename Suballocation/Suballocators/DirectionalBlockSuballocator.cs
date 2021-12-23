@@ -304,17 +304,13 @@ public unsafe class DirectionalBlockSuballocator<T> : ISuballocator<T>, IDisposa
         }
     }
 
-    unsafe void ISuballocator.Return(byte* segmentPtr)
+    unsafe long ISuballocator.Return(byte* segmentPtr)
     {
-        Return((T*)segmentPtr);
+        return Return((T*)segmentPtr) * Unsafe.SizeOf<T>();
     }
 
-    public void Return(Segment<T> segment)
-    {
-        Return(segment.SegmentPtr);
-    }
 
-    public unsafe void Return(T* segmentPtr)
+    public unsafe long Return(T* segmentPtr)
     {
         if (_disposed) throw new ObjectDisposedException(nameof(SequentialBlockSuballocator<T>));
 
@@ -410,6 +406,8 @@ public unsafe class DirectionalBlockSuballocator<T> : ISuballocator<T>, IDisposa
             _freeBlockBalance += (_currentIndex - rangeStart) << 1;
             _currentIndex = rangeStart;
         }
+
+        return blockCount * _blockLength;
     }
 
     public void Clear()

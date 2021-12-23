@@ -195,17 +195,12 @@ public unsafe class SequentialBlockSuballocator<T> : ISuballocator<T>, IDisposab
         return false;
     }
 
-    unsafe void ISuballocator.Return(byte* segmentPtr)
+    unsafe long ISuballocator.Return(byte* segmentPtr)
     {
-        Return((T*)segmentPtr);
+        return Return((T*)segmentPtr) * Unsafe.SizeOf<T>();
     }
 
-    public void Return(Segment<T> segment)
-    {
-        Return(segment.SegmentPtr);
-    }
-
-    public unsafe void Return(T* segmentPtr)
+    public unsafe long Return(T* segmentPtr)
     {
         if (_disposed) throw new ObjectDisposedException(nameof(SequentialBlockSuballocator<T>));
 
@@ -224,6 +219,8 @@ public unsafe class SequentialBlockSuballocator<T> : ISuballocator<T>, IDisposab
 
         Allocations--;
         Used -= header.BlockCount * _blockLength;
+
+        return header.BlockCount * _blockLength;
     }
 
     public void Clear()

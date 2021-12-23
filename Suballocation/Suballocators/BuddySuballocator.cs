@@ -234,17 +234,12 @@ public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T
         return true;
     }
 
-    unsafe void ISuballocator.Return(byte* segmentPtr)
+    unsafe long ISuballocator.Return(byte* segmentPtr)
     {
-        Return((T*)segmentPtr);
+        return Return((T*)segmentPtr) * Unsafe.SizeOf<T>();
     }
 
-    public void Return(Segment<T> segment)
-    {
-        Return(segment.SegmentPtr);
-    }
-
-    public unsafe void Return(T* segmentPtr)
+    public unsafe long Return(T* segmentPtr)
     {
         if (_disposed) throw new ObjectDisposedException(nameof(BuddySuballocator<T>));
 
@@ -269,6 +264,7 @@ public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T
 
         Allocations--;
         BlocksUsed -= header.BlockCount;
+        long length = header.BlockCount * MinBlockLength;
 
         // If the returned block has a 'buddy' block next to it that is also free, then combine the two (recursively).
         Combine(freeBlockIndexIndex, header.BlockCountLog);
@@ -309,6 +305,8 @@ public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T
 
             Combine(blockIndexIndex, lengthLog + 1);
         }
+
+        return length;
     }
 
     /// <summary>Free blocks are changed to each other, grouped by size. This removes a block from a chain and connects the chain.</summary>
