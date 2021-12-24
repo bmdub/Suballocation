@@ -26,6 +26,13 @@ public unsafe interface ISuballocator : IDisposable
     /// <returns>The byte length of the allocated segment.</returns>
     public long GetSegmentLengthBytes(byte* segmentPtr);
 
+    /// <summary>Clones the rented memory segment, and rents the clone out to the user.</summary>
+    /// <param name="sourceSegmentPtr">The pointer to a rented segment of memory to clone from.</param>
+    /// <param name="destinationSegmentPtr">A pointer to a rented segment that must be returned to the allocator in order to free the memory for subsequent usage.</param>
+    /// <param name="lengthActual">The byte length of the rented segment returned, which may be >= the requested length.</param>
+    /// <returns>True if successful; False if free space could not be found for this segment.</returns>
+    public bool TryClone(byte* sourceSegmentPtr, out byte* destinationSegmentPtr, out long lengthActual);
+
     /// <summary>Disposes of the given rented memory segment, and makes the memory available for rent once again.</summary>
     /// <param name="segmentPtr">The pointer to a rented segment of memory from this allocator.</param>
     /// <returns>The byte length of the returned segment.</returns>
@@ -54,6 +61,13 @@ public unsafe interface ISuballocator<T> : ISuballocator, IEnumerable<(IntPtr Se
     /// <returns>The unit length of the allocated segment.</returns>
     public long GetSegmentLength(T* segmentPtr);
 
+    /// <summary>Clones the rented memory segment, and rents the clone out to the user.</summary>
+    /// <param name="sourceSegmentPtr">The pointer to a rented segment of memory to clone from.</param>
+    /// <param name="destinationSegmentPtr">A pointer to a rented segment that must be returned to the allocator in order to free the memory for subsequent usage.</param>
+    /// <param name="lengthActual">The unit length of the rented segment returned, which may be >= the requested length.</param>
+    /// <returns>True if successful; False if free space could not be found for this segment.</returns>
+    public bool TryClone(T* sourceSegmentPtr, out T* destinationSegmentPtr, out long lengthActual);
+
     /// <summary>Returns a free segment of memory of the desired length.</summary>
     /// <param name="length">The unit length of the segment requested.</param>
     /// <param name="segmentPtr">A pointer to a rented segment that must be returned to the allocator in order to free the memory for subsequent usage.</param>
@@ -73,6 +87,18 @@ public unsafe interface ISuballocator<T> : ISuballocator, IEnumerable<(IntPtr Se
 
 public static class SuballocatorExtensions
 {
+    /// <summary>Clones the memory segment, and rents the clone out to the user.</summary>
+    /// <returns>The cloned segment.</returns>
+    public static unsafe T* Clone<T>(this ISuballocator<T> suballocator, T* sourceSegment) where T : unmanaged
+    {
+        if (suballocator.TryClone(sourceSegment, out var destinationSegmentPtr, out _) == false)
+        {
+            throw new OutOfMemoryException();
+        }
+
+        return destinationSegmentPtr;
+    }
+
     /// <summary>Returns a free segment of memory of the desired length.</summary>
     /// <param name="length">The unit length of the segment requested.</param>
     /// <returns>A pointer to a rented segment that must be returned to the allocator in order to free the memory for subsequent usage.</returns>

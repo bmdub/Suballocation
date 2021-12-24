@@ -90,6 +90,32 @@ public unsafe readonly record struct Segment<T> : ISegment<T> where T : unmanage
 
 public static class SuballocatorExtensions
 {
+    /// <summary>Clones the memory segment, and rents the clone out to the user.</summary>
+    /// <returns>True if successful; False if free space could not be found.</returns>
+    public static unsafe bool TryCloneSegment<T>(this ISuballocator<T> suballocator, Segment<T> sourceSegment, out Segment<T> destinationSegment) where T : unmanaged
+    {
+        if(suballocator.TryClone(sourceSegment.SegmentPtr, out var destinationSegmentPtr, out var actualLength) == false)
+        {
+            destinationSegment = default!;
+            return false;
+        }
+
+        destinationSegment = new Segment<T>(suballocator.PElems, destinationSegmentPtr, actualLength);
+        return true;
+    }
+
+    /// <summary>Clones the memory segment, and rents the clone out to the user.</summary>
+    /// <returns>The cloned segment.</returns>
+    public static unsafe Segment<T> CloneSegment<T>(this ISuballocator<T> suballocator, Segment<T> sourceSegment) where T : unmanaged
+    {
+        if (suballocator.TryCloneSegment(sourceSegment, out var destinationSegment) == false)
+        {
+            throw new OutOfMemoryException();
+        }
+
+        return destinationSegment;
+    }
+
     /// <summary>Returns a free segment of memory of the desired length.</summary>
     /// <param name="length">The unit length of the segment requested.</param>
     /// <param name="segment">A rented segment that must be returned to the allocator in order to free the memory for subsequent usage.</param>

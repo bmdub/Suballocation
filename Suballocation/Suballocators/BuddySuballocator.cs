@@ -160,6 +160,54 @@ public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T
         }
     }
 
+    public bool TryClone(byte* sourceSegmentPtr, out byte* destinationSegmentPtr, out long lengthActual)
+    {
+        if(TryClone((T*)sourceSegmentPtr, out var unitDestinationPtr, out lengthActual) == false)
+        {
+            destinationSegmentPtr = default;
+            return false;
+        }
+
+        destinationSegmentPtr = (byte*)unitDestinationPtr;
+        lengthActual *= Unsafe.SizeOf<T>();
+        return true;
+    }
+
+    public bool TryClone(T* sourceSegmentPtr, out T* destinationSegmentPtr, out long lengthActual)
+    {
+        if (_disposed) throw new ObjectDisposedException(nameof(BuddySuballocator<T>));
+
+        // Convert to block space (divide length by block size).
+        long offset = sourceSegmentPtr - _pElems;
+
+        long freeBlockIndexIndex = offset / MinBlockLength;
+
+        if (freeBlockIndexIndex < 0 || freeBlockIndexIndex >= _indexLength)
+        {
+            throw new ArgumentOutOfRangeException(nameof(sourceSegmentPtr));
+        }
+
+        ref BlockHeader header = ref _index[freeBlockIndexIndex];
+
+        if (header.Occupied == false || header.Valid == false)
+        {
+            throw new InvalidOperationException($"Attempt to clone an unrented segment.");
+        }
+
+        long length = header.BlockCount * MinBlockLength;
+
+        if (TryRent(length, out destinationSegmentPtr, out lengthActual) == false)
+        {
+            return false;
+        }
+
+        Debug.Assert(length == lengthActual);
+
+        Buffer.MemoryCopy(sourceSegmentPtr, destinationSegmentPtr, lengthActual * Unsafe.SizeOf<T>(), length * Unsafe.SizeOf<T>());
+
+        return true;
+    }
+
     public bool TryRent(long length, out T* segmentPtr, out long lengthActual)
     {
         if (_disposed) throw new ObjectDisposedException(nameof(BuddySuballocator<T>));

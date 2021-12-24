@@ -60,6 +60,28 @@ namespace Suballocation.NUnit
         }
 
         [Test]
+        public void CloneTest()
+        {
+            int power = 24;
+
+            long length = 1L << (power + 1);
+
+            using (var allocator = new BuddySuballocator<int>(length - 1, 1))
+            {
+                for (int i = 0; i < power; i++)
+                {
+                    var segment = allocator.RentSegment(1L << i);
+                    segment.AsSpan().Fill(i);
+
+                    var clone = allocator.CloneSegment(segment);
+
+                    Assert.AreEqual(segment.Length, clone.Length);
+                    Assert.IsTrue(segment.AsSpan().SequenceEqual(clone.AsSpan()));
+                }
+            }
+        }
+
+        [Test]
         public void NonOverlapTest()
         {
             int power = 21;

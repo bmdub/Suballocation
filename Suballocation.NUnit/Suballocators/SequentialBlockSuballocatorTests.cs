@@ -54,6 +54,24 @@ namespace Suballocation.NUnit
         }
 
         [Test]
+        public void CloneTest()
+        {
+            using (var allocator = new SequentialBlockSuballocator<int>(32640 * 2, 1))
+            {
+                for (int i = 1; i <= 255; i++)
+                {
+                    var segment = allocator.RentSegment(i);
+                    segment.AsSpan().Fill(i);
+
+                    var clone = allocator.CloneSegment(segment);
+
+                    Assert.AreEqual(segment.Length, clone.Length);
+                    Assert.IsTrue(segment.AsSpan().SequenceEqual(clone.AsSpan()));
+                }
+            }
+        }
+
+        [Test]
         public void NonOverlapTest()
         {
             using (var allocator = new SequentialBlockSuballocator<int>(32640, 1))

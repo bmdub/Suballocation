@@ -125,6 +125,48 @@ public unsafe class DirectionalBlockSuballocator<T> : ISuballocator<T>, IDisposa
         }
     }
 
+    public bool TryClone(byte* sourceSegmentPtr, out byte* destinationSegmentPtr, out long lengthActual)
+    {
+        if (TryClone((T*)sourceSegmentPtr, out var unitDestinationPtr, out lengthActual) == false)
+        {
+            destinationSegmentPtr = default;
+            return false;
+        }
+
+        destinationSegmentPtr = (byte*)unitDestinationPtr;
+        lengthActual *= Unsafe.SizeOf<T>();
+        return true;
+    }
+
+    public bool TryClone(T* sourceSegmentPtr, out T* destinationSegmentPtr, out long lengthActual)
+    {
+        if (_disposed) throw new ObjectDisposedException(nameof(BuddySuballocator<T>));
+
+        long index = sourceSegmentPtr - _pElems;
+
+        long blockIndex = index / _blockLength;
+
+        ref IndexEntry header = ref _index[blockIndex];
+
+        if (header.Occupied == false)
+        {
+            throw new InvalidOperationException($"Attempt to clone an unrented segment.");
+        }
+
+        long length = header.BlockCount * _blockLength;
+
+        if (TryRent(length, out destinationSegmentPtr, out lengthActual) == false)
+        {
+            return false;
+        }
+
+        Debug.Assert(length == lengthActual);
+
+        Buffer.MemoryCopy(sourceSegmentPtr, destinationSegmentPtr, lengthActual * Unsafe.SizeOf<T>(), length * Unsafe.SizeOf<T>());
+
+        return true;
+    }
+
     public bool TryRent(long length, out T* segmentPtr, out long lengthActual)
     {
         if (_disposed) throw new ObjectDisposedException(nameof(SequentialBlockSuballocator<T>));
