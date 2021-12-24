@@ -89,6 +89,18 @@ public static class SuballocatorExtensions
 {
     /// <summary>Clones the memory segment, and rents the clone out to the user.</summary>
     /// <returns>The cloned segment.</returns>
+    public static unsafe byte* Clone<T>(this ISuballocator suballocator, byte* sourceSegment)
+    {
+        if (suballocator.TryClone(sourceSegment, out var destinationSegmentPtr, out _) == false)
+        {
+            throw new OutOfMemoryException();
+        }
+
+        return destinationSegmentPtr;
+    }
+
+    /// <summary>Clones the memory segment, and rents the clone out to the user.</summary>
+    /// <returns>The cloned segment.</returns>
     public static unsafe T* Clone<T>(this ISuballocator<T> suballocator, T* sourceSegment) where T : unmanaged
     {
         if (suballocator.TryClone(sourceSegment, out var destinationSegmentPtr, out _) == false)
