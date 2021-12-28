@@ -60,6 +60,26 @@ namespace Suballocation.NUnit
         }
 
         [Test]
+        public unsafe void FillTestNonGeneric()
+        {
+            int power = 24;
+
+            long length = 1L << power;
+
+            using (var allocator = (ISuballocator)new BuddySuballocator<int>(length - 1, 1))
+            {
+                for (int i = 0; i < power; i++)
+                {
+                    var ptr = allocator.Rent(1L << (i + 2));
+                    var len = allocator.GetSegmentLengthBytes(ptr);
+                    Assert.AreEqual(1L << (i + 2), len);
+                }
+
+                Assert.AreEqual(0, allocator.FreeBytes);
+            }
+        }
+
+        [Test]
         public void CloneTest()
         {
             int power = 24;

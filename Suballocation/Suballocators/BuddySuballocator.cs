@@ -208,6 +208,25 @@ public unsafe class BuddySuballocator<T> : ISuballocator<T>, IDisposable where T
         return true;
     }
 
+    bool ISuballocator.TryRent(long length, out byte* segmentPtr, out long lengthActual)
+    {
+        var unitLength = length / Unsafe.SizeOf<T>();
+        if(unitLength * Unsafe.SizeOf<T>() != length)
+        {
+            unitLength++;
+        }
+
+        if (TryRent(unitLength, out var unitSegmentPtr, out lengthActual) == false)
+        {
+            segmentPtr = default;
+            return false;
+        }
+
+        segmentPtr = (byte*)unitSegmentPtr;
+        lengthActual *= Unsafe.SizeOf<T>();
+        return true;
+    }
+
     public bool TryRent(long length, out T* segmentPtr, out long lengthActual)
     {
         if (_disposed) throw new ObjectDisposedException(nameof(BuddySuballocator<T>));

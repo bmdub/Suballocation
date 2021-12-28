@@ -54,6 +54,22 @@ namespace Suballocation.NUnit
         }
 
         [Test]
+        public unsafe void FillTestNonGeneric()
+        {
+            using (var allocator = (ISuballocator)new DirectionalBlockSuballocator<int>(32640, 1))
+            {
+                for (int i = 1; i <= 255; i++)
+                {
+                    var ptr = allocator.Rent(i << 2);
+                    var len = allocator.GetSegmentLengthBytes(ptr);
+                    Assert.AreEqual(i << 2, len);
+                }
+
+                Assert.AreEqual(0, allocator.FreeBytes);
+            }
+        }
+
+        [Test]
         public void CloneTest()
         {
             using (var allocator = new DirectionalBlockSuballocator<int>(32640 * 2, 1))
